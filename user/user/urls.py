@@ -17,6 +17,7 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from account.views import CustomTokenObtainPairView
 
 urlpatterns = [
     # Django Admin Site URL
@@ -28,7 +29,10 @@ urlpatterns = [
 
     # djangorestframework-simplejwt의 토큰 엔드포인트를 추가합니다.
     # JWT 토큰을 얻는 엔드포인트: Access 및 Refresh 토큰 발급
-    path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    #path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+    # 변경: 커스텀 뷰 사용
+    path('api/token/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
     # Access 토큰을 갱신하는 엔드포인트
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+
 ]

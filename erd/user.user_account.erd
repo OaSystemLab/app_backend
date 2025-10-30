@@ -99,7 +99,7 @@
           "color": "#0361F4"
         },
         "meta": {
-          "updateAt": 1761265722817,
+          "updateAt": 1761265722820,
           "createAt": 1758687632697
         }
       },
@@ -254,8 +254,8 @@
           "color": "#CC00FF"
         },
         "meta": {
-          "updateAt": 1761265752617,
-          "createAt": 1761265316206
+          "updateAt": 1761265752622,
+          "createAt": 1761265316214
         }
       }
     },
@@ -1207,7 +1207,7 @@
         "comment": "가족 그룹 ID",
         "dataType": "VARCHAR(50)",
         "default": "",
-        "options": 0,
+        "options": 8,
         "ui": {
           "keys": 0,
           "widthName": 86,
@@ -1216,8 +1216,8 @@
           "widthDefault": 60
         },
         "meta": {
-          "updateAt": 1761265483976,
-          "createAt": 1761265371196
+          "updateAt": 1761265799232,
+          "createAt": 1761265371202
         }
       },
       "V6HTVjRxMhPKua64QCkyw": {
@@ -1236,8 +1236,8 @@
           "widthDefault": 60
         },
         "meta": {
-          "updateAt": 1761265757510,
-          "createAt": 1761265371788
+          "updateAt": 1761265757513,
+          "createAt": 1761265371793
         }
       },
       "kLibr-aMs1A8dfvJHOPDA": {
@@ -1256,8 +1256,8 @@
           "widthDefault": 60
         },
         "meta": {
-          "updateAt": 1761265773618,
-          "createAt": 1761265372074
+          "updateAt": 1761265773623,
+          "createAt": 1761265372080
         }
       },
       "_DSkXiUppb_gTysRbh7PO": {
@@ -1276,8 +1276,8 @@
           "widthDefault": 60
         },
         "meta": {
-          "updateAt": 1761265503988,
-          "createAt": 1761265372344
+          "updateAt": 1761265503996,
+          "createAt": 1761265372352
         }
       },
       "Y4lgXXLODvbKXOdWe_GIE": {
@@ -1296,8 +1296,8 @@
           "widthDefault": 60
         },
         "meta": {
-          "updateAt": 1761265506725,
-          "createAt": 1761265438696
+          "updateAt": 1761265506730,
+          "createAt": 1761265438704
         }
       },
       "vkZSvatdT7_ndV4ieSS6O": {
@@ -1316,8 +1316,8 @@
           "widthDefault": 60
         },
         "meta": {
-          "updateAt": 1761265716098,
-          "createAt": 1761265443108
+          "updateAt": 1761265716104,
+          "createAt": 1761265443115
         }
       },
       "lLI1NoUGM2Uj9rDNz14_c": {
@@ -1336,8 +1336,8 @@
           "widthDefault": 60
         },
         "meta": {
-          "updateAt": 1761265475310,
-          "createAt": 1761265453229
+          "updateAt": 1761265475316,
+          "createAt": 1761265453236
         }
       },
       "x6ogoU7rj1a_y44hlIzwG": {
@@ -1356,8 +1356,8 @@
           "widthDefault": 60
         },
         "meta": {
-          "updateAt": 1761265720783,
-          "createAt": 1761265554642
+          "updateAt": 1761265720788,
+          "createAt": 1761265554646
         }
       }
     },

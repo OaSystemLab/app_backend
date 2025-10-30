@@ -23,23 +23,14 @@ from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from django.core import exceptions
 from django.utils.translation import gettext_lazy as _
-from .models import UserInfo , OasGroup# 이전에 정의한 커스텀 사용자 모델
+from .models import UserInfo , OasGroup, UserEmail
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.exceptions import ValidationError as DRFValidationError
 
-
-class OasGroupSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = OasGroup
-        # API 응답에 포함할 필드를 지정합니다.
-        # 모든 필드를 포함하려면 '__all__'을 사용하거나, 필요한 필드만 리스트로 지정합니다.
-        fields = [
-            'oas_group_id',
-            'oas_info_id',
-            'oas_name',
-            'created_at'
-        ]
-        # 또는 fields = '__all__'
-
-
+# ----------------------------------------------------------------------
+# 1. 사용자 등록 View
+# ----------------------------------------------------------------------
 class UserRegistrationSerializer(serializers.ModelSerializer):
     """
     UserInfo 모델 기반의 사용자 등록 Serializer.
@@ -101,6 +92,9 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         )
         return user
 
+# ----------------------------------------------------------------------
+# 2. 사용자 로그인 View (추가)
+# ----------------------------------------------------------------------
 class UserLoginSerializer(serializers.Serializer):
     """
     사용자 로그인을 위한 Serializer.
@@ -130,4 +124,179 @@ class UserLoginSerializer(serializers.Serializer):
             raise serializers.ValidationError(_("이메일과 비밀번호는 필수 입력 항목입니다."))
 
         # 추가적인 복잡한 인증(DB 조회, 암호 비교)은 view나 custom authenticate()에서 처리
+        return data
+
+
+# ----------------------------------------------------------------------
+# 3. api/token 이용한 로그인시 전달 해 줄 정보
+# ----------------------------------------------------------------------
+class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    @classmethod
+    def get_token(cls, user):
+        # 부모 클래스의 get_token을 호출하여 Access 및 Refresh 토큰 객체를 생성합니다.
+        token = super().get_token(user)
+
+        # 토큰의 페이로드에 원하는 사용자 정보를 추가합니다.
+        # 일반적으로 'user_id' 또는 'id'를 사용합니다.
+        # 여기서는 UserInfo 모델의 id 값을 추가합니다.
+        token['user_id'] = user.id  # user는 인증된 UserInfo 인스턴스입니다.
+        token['nick_name'] = user.nick_name # 닉네임도 추가 가능
+
+        # UserEmail 모델의 이메일 인증 상태를 추가합니다.
+        # related_name='email_info'로 접근합니다.
+        if hasattr(user, 'email_info'):
+             token['email_auth'] = user.email_info.email_auth
+        else:
+             token['email_auth'] = False # UserEmail 레코드가 없는 경우를 대비
+
+        return token
+
+    def validate(self, attrs):
+        try:
+            # 부모 클래스의 validate 메서드를 호출하여 토큰 쌍을 얻습니다.
+            # 이 과정에서 인증(authenticate)이 실패하면 AuthenticationFailed 예외가 발생합니다.
+            data = super().validate(attrs)
+        except AuthenticationFailed:
+            # === 이 부분을 수정합니다! ===
+            # 인증 실패 시 발생하는 AuthenticationFailed를 가로채고,
+            # Custom Validation Error를 발생시켜 non_field_errors를 커스텀합니다.
+            raise serializers.ValidationError({
+                "detail": _("제공된 인증 정보가 유효하지 않습니다. 이메일 또는 비밀번호를 확인해 주세요.")
+            }, code='authentication')
+
+        # 사용자 ID를 응답 데이터에 직접 추가합니다.
+        # self.user는 TokenObtainPairSerializer의 validate 과정에서 설정됩니다.
+        data['user_id'] = self.user.id
+        data['nick_name'] = self.user.nick_name
+
+        # family_group_id도 추가
+        #data['family_group_id'] = self.user.family_group_id
+
+        # UserEmail 모델의 이메일 인증 상태를 응답에 포함합니다.
+        if hasattr(self.user, 'email_info'):
+             data['email_auth'] = self.user.email_info.email_auth
+        else:
+             data['email_auth'] = False
+
+        return data
+
+# ----------------------------------------------------------------------
+# 4. 임시 2025.10.27 View (삭제 필요...)
+# ----------------------------------------------------------------------
+class OasGroupSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = OasGroup
+        # API 응답에 포함할 필드를 지정합니다.
+        # 모든 필드를 포함하려면 '__all__'을 사용하거나, 필요한 필드만 리스트로 지정합니다.
+        fields = [
+            'oas_group_id',
+            'oas_info_id',
+            'oas_name',
+            'created_at'
+        ]
+        # 또는 fields = '__all__'
+
+# ----------------------------------------------------------------------
+# 5. email 인증 코드 요청 하기 전에 검증 하는 부분
+# ----------------------------------------------------------------------
+class EmailAuthSendSerializer(serializers.Serializer):
+    """
+    로그인된 사용자의 정보를 사용하여 이메일 인증 코드를 전송하기 위한 Serializer입니다.
+    """
+
+    def validate(self, data):
+        # View에서 self.request.user를 context로 넘겨받는다고 가정합니다.
+        user = self.context['request'].user
+
+        # 1. 사용자 객체 인증 여부 확인 (수정된 부분)
+        if not user.is_authenticated:
+            # DRFValidationError를 사용하여 detail 메시지 반환
+            raise DRFValidationError(
+                {"detail": _("요청을 처리하려면 유효한 로그인 토큰이 필요합니다.")},
+                code='not_authenticated'
+            )
+
+        # 2. UserEmail 객체 조회 (수정된 부분)
+        try:
+            email_info = user.email_info
+        except UserEmail.DoesNotExist:
+            raise DRFValidationError(
+                {"detail": _("계정에 연결된 인증 정보가 누락되었습니다. 관리자에게 문의해 주세요.")},
+                code='info_missing'
+            )
+
+        # 3. 이미 인증이 완료되었는지 확인
+        # if email_info.email_auth:
+        #     raise DRFValidationError(
+        #         {"detail": _("이미 이메일 인증이 완료된 계정입니다.")},
+        #         code='already_verified'
+        #     )
+
+        # 4. 인증 잠금 상태 확인 (로직은 그대로 유지)
+        # TODO. 로직 처리 할때 ..
+        # if email_info.email_auth_lock:
+        #     raise serializers.ValidationError(_("인증 시도 횟수 초과로 계정이 일시적으로 잠겼습니다. 나중에 다시 시도해 주세요."))
+
+        # 유효성 검사를 통과한 UserEmail 객체를 context에 저장하여 view에서 사용
+        self.context['email_info'] = email_info
+
+        return data # 이제 data는 빈 딕셔너리가 될 수 있습니다.
+# ----------------------------------------------------------------------
+# 6. 인증 메일서 받은 코드 검증 하기 전에 체크 하는 부분
+# ----------------------------------------------------------------------
+class EmailAuthConfirmSerializer(serializers.Serializer):
+    """
+    사용자로부터 받은 이메일과 인증 코드를 검증하고,
+    인증이 완료되면 UserEmail 모델의 상태를 업데이트할 준비를 합니다.
+    """
+    # email = serializers.EmailField(
+    #     max_length=100,
+    #     required=True,
+    #     label=_("이메일")
+    # )
+    auth_code = serializers.CharField(
+        max_length=10, # UserEmail 모델의 max_length에 맞춰 10으로 설정
+        required=True,
+        label=_("인증 코드")
+    )
+
+    def validate(self, data):
+        # View에서 self.request.user를 context로 넘겨받는다고 가정합니다.
+        user = self.context['request'].user
+        auth_code = data.get('auth_code')
+
+        # 1. 사용자 객체 인증 여부 확인 (View의 Permission 설정으로 걸러지지만 안전을 위해 유지)
+        if not user.is_authenticated:
+            # DRFValidationError를 사용하여 detail 메시지 반환
+            raise DRFValidationError(
+                {"detail": _("로그인이 필요합니다.")},
+                code='not_authenticated'
+            )
+        # 2. UserEmail 객체 확인
+        try:
+            email_info = user.email_info
+        except UserEmail.DoesNotExist:
+            raise DRFValidationError(
+                {"detail": _("사용자 이메일 인증 정보가 누락되었습니다.")},
+                code='info_missing'
+            )
+        # 3. 이미 인증이 완료되었는지 확인
+        # if email_info.email_auth:
+        #     raise DRFValidationError(
+        #         {"detail": _("이미 이메일 인증이 완료된 계정입니다.")},
+        #         code='already_verified'
+        #     )
+        # 4. 인증 코드 일치 여부 확인 (수정된 부분)
+        if not email_info.email_auth_code or email_info.email_auth_code != auth_code:
+            # === 이 부분을 DRFValidationError를 사용하여 detail 응답으로 변경 ===
+            raise DRFValidationError(
+                {"detail": _("인증 코드가 일치하지 않습니다. 다시 확인해 주세요.")},
+                code='code_mismatch'
+            )
+
+        # TODO: 여기에 코드 유효 기간 확인 로직을 추가할 수 있습니다.
+
+        # 유효성 검사를 통과한 UserEmail 객체를 context에 저장하여 view에서 사용
+        self.context['email_info'] = email_info
+
         return data

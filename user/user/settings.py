@@ -145,9 +145,9 @@ REST_FRAMEWORK = {
 # JWT SETTINGS
 SIMPLE_JWT = {
     # 액세스 토큰의 유효 기간을 설정 5
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=1),
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
     # 리프레시 토큰의 유효 기간 timedelta(days=30),
-    'REFRESH_TOKEN_LIFETIME': timedelta(minutes=5),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=90),
     # 리프레시 토큰을 사용할 때마다 새로운 리프레시 토큰을 발급할지 여부
     # True로 설정하면 리프레시 토큰이 매번 갱신되어, 토큰 탈취 시 공격자가 사용할 수 있는 기회를 줄여 보안을 강화
     'ROTATE_REFRESH_TOKENS': True,
@@ -155,6 +155,28 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': False
 }
 
-#
-
+# 사용자 인증
 AUTH_USER_MODEL = 'account.UserInfo'
+
+# SMTP
+# 이메일 백엔드 설정 (SMTP 사용)
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+#EMAIL_BACKEND = 'account.email_backend.CustomEmailBackend'
+# 메일 호스트 (SMTP 서버 주소)
+# 예: Gmail의 경우 'smtp.gmail.com'
+EMAIL_HOST = 'smtp.gmail.com'
+# 메일 서버 포트
+# 보안 연결에 따라 587 (TLS) 또는 465 (SSL)
+EMAIL_PORT = 587
+# 💡 SSL 사용: True로 설정
+EMAIL_USE_SSL = False
+# 💡 TLS는 사용하지 않음: SSL과 TLS를 동시에 True로 설정하면 안 됩니다.
+EMAIL_USE_TLS = True
+# 메일 서버 인증에 사용할 사용자 이름 (보내는 이메일 주소)
+EMAIL_HOST_USER = 'rnd.ventigen@gmail.com'
+# 메일 서버 인증에 사용할 비밀번호 (실제 이메일 비밀번호가 아닌 '앱 비밀번호'를 사용해야 할 수 있음)
+# 메일 전용 비밀번호 사용
+EMAIL_HOST_PASSWORD = 'qjrq ezwg fxei iolb'
+#EMAIL_HOST_PASSWORD = 'oas12w3e4r'
+# 기본 발신자 이메일 주소
+DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
