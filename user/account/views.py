@@ -19,6 +19,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.authentication import JWTAuthentication # settings.py에 설정된 인증 클래스와 일치해야 합니다.
 from .serializers import CustomTokenObtainPairSerializer
 
+from .tasks import send_auth_email_task # Celery Task import
+
 # ----------------------------------------------------------------------
 # 1. 사용자 등록 View
 # ----------------------------------------------------------------------
@@ -162,7 +164,7 @@ class EmailAuthSendView(APIView):
         email_info.email_auth_code = auth_code
         #email_info.email_auth_count += 1      # 인증 시도 횟수 증가
         email_info.email_refresh_count += 1   # 다시 전송 횟수 증가
-        #email_info.email_auth_date = timezone.now().date() # 인증 시도 날짜 기록
+        email_info.email_code_date = timezone.now().date() # 인증 시도 날짜 기록
 
         # TODO: 여기에 재전송 횟수/인증 횟수 제한 로직을 추가해야 합니다.
         # 예: if email_info.email_auth_count > 5: email_info.email_auth_lock = True
@@ -170,7 +172,11 @@ class EmailAuthSendView(APIView):
         email_info.save()
 
         # 3. 인증 이메일 전송 (실제 SMTP 설정 필요)
-        send_auth_email(email, auth_code)
+        #send_auth_email(email, auth_code)
+
+        # 3. 인증 이메일 전송을 Celery 작업 큐에 위임 (비동기 처리)
+        # delay()를 사용하면 이 함수는 즉시 반환되며, 웹 서버는 차단되지 않습니다.
+        send_auth_email_task.delay(email, auth_code) # 이메일과 코드를 인자로 전달
 
         return Response({
             "message": "인증 코드가 이메일로 전송되었습니다. 코드를 확인해 주세요.",
@@ -204,6 +210,7 @@ class EmailAuthConfirmView(APIView):
         # 1. UserEmail 객체의 상태 업데이트
         email_info.email_auth = True
         email_info.email_auth_code = None # 인증 완료 후 코드 제거 (재사용 방지)
+        email_info.email_code_date = None # 인증 완료 후 코드 제거 (재사용 방지)
         email_info.email_auth_date = timezone.now().date()
         # 기타 인증 관련 카운트/락 필드 초기화 (선택 사항)
         email_info.email_auth_count += 1

@@ -141,12 +141,19 @@ class UserEmail(models.Model):
         null=True,
         blank=True
     )
+    # email 인증 코드
     email_auth_code = models.CharField(
         verbose_name='이메일 인증 코드',
         max_length=10,
         null=True,
         blank=True
     )
+    email_code_date = models.DateField(
+        verbose_name='코드 생성 날짜',
+        null=True,
+        blank=True
+    )
+
     email_refresh_count = models.SmallIntegerField(
         verbose_name='이메일 다시 전송 횟수',
         default=0,

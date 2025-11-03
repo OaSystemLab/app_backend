@@ -158,7 +158,9 @@ SIMPLE_JWT = {
 # 사용자 인증
 AUTH_USER_MODEL = 'account.UserInfo'
 
-# SMTP
+# ==========================================================
+# Email Configuration (이메일 전송에 필요)
+# ==========================================================
 # 이메일 백엔드 설정 (SMTP 사용)
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
 #EMAIL_BACKEND = 'account.email_backend.CustomEmailBackend'
@@ -177,6 +179,19 @@ EMAIL_HOST_USER = 'rnd.ventigen@gmail.com'
 # 메일 서버 인증에 사용할 비밀번호 (실제 이메일 비밀번호가 아닌 '앱 비밀번호'를 사용해야 할 수 있음)
 # 메일 전용 비밀번호 사용
 EMAIL_HOST_PASSWORD = 'qjrq ezwg fxei iolb'
-#EMAIL_HOST_PASSWORD = 'oas12w3e4r'
 # 기본 발신자 이메일 주소
 DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+
+
+# ==========================================================
+# Celery Configuration
+# ==========================================================
+# 주의: 실제로 사용하려면 Redis나 RabbitMQ와 같은 브로커 설치가 필요합니다.
+# 예시: Redis를 브로커 겸 백엔드로 사용하는 경우
+CELERY_BROKER_URL = 'redis://127.0.0.1:6379/0' # Redis 주소로 변경하세요
+CELERY_RESULT_BACKEND = 'redis://127.0.0.1:6379/0'
+
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'Asia/Seoul' # 프로젝트의 시간대와 일치시킵니다.

@@ -4,8 +4,8 @@
   "settings": {
     "width": 4000,
     "height": 4000,
-    "scrollTop": -1805.3333,
-    "scrollLeft": -1895.592,
+    "scrollTop": -1767.3333,
+    "scrollLeft": -1953.592,
     "zoomLevel": 1,
     "show": 511,
     "database": 4,
@@ -189,6 +189,7 @@
           "mGQNxwOz-9wWb8KSpMqfw",
           "Kaz1d72t7omM5tN45DJ-A",
           "YhH4Z_5WGqmif3uWLUM3_",
+          "J-PwJ84xRtr8mToPh-DEz",
           "JRoWqKsicD3jaKNvJxb5W",
           "4O0vFWxOD5ATB91rT3eVj",
           "HrP5vZhhiU8E2tfWR3aSL",
@@ -203,6 +204,7 @@
           "mGQNxwOz-9wWb8KSpMqfw",
           "Kaz1d72t7omM5tN45DJ-A",
           "YhH4Z_5WGqmif3uWLUM3_",
+          "J-PwJ84xRtr8mToPh-DEz",
           "JRoWqKsicD3jaKNvJxb5W",
           "4O0vFWxOD5ATB91rT3eVj",
           "HrP5vZhhiU8E2tfWR3aSL",
@@ -219,7 +221,7 @@
           "color": "#2156F3"
         },
         "meta": {
-          "updateAt": 1760934422269,
+          "updateAt": 1761871614381,
           "createAt": 1760920934028
         }
       },
@@ -1359,38 +1361,29 @@
           "updateAt": 1761265720788,
           "createAt": 1761265554646
         }
-      }
-    },
-    "relationshipEntities": {
-      "A_eCOlz0PogbCrR6jy1S8": {
-        "id": "A_eCOlz0PogbCrR6jy1S8",
-        "identification": false,
-        "relationshipType": 16,
-        "startRelationshipType": 2,
-        "start": {
-          "tableId": "fQP77y4ArwCBH5H-dnzXv",
-          "columnIds": [
-            "Lbi7BodNPJKS7Yf7UozTM"
-          ],
-          "x": 2347.75,
-          "y": 2035.6389,
-          "direction": 2
-        },
-        "end": {
-          "tableId": "EnB4ZwkdFmrB5NUE_Ok08",
-          "columnIds": [
-            "I2vEWeVpc4Hd5-qqia8rj"
-          ],
-          "x": 2434.0762,
-          "y": 2151.3332,
-          "direction": 1
+      },
+      "J-PwJ84xRtr8mToPh-DEz": {
+        "id": "J-PwJ84xRtr8mToPh-DEz",
+        "tableId": "EnB4ZwkdFmrB5NUE_Ok08",
+        "name": "email_code_date",
+        "comment": "코드 생성 날짜",
+        "dataType": "DATE(6)",
+        "default": "null",
+        "options": 0,
+        "ui": {
+          "keys": 0,
+          "widthName": 90,
+          "widthComment": 81,
+          "widthDataType": 60,
+          "widthDefault": 60
         },
         "meta": {
-          "updateAt": 1760921795435,
-          "createAt": 1760921795435
+          "updateAt": 1761871611358,
+          "createAt": 1761871585081
         }
       }
     },
+    "relationshipEntities": {},
     "indexEntities": {
       "qSbvhYcLWbFSN4Cg8432F": {
         "id": "qSbvhYcLWbFSN4Cg8432F",
