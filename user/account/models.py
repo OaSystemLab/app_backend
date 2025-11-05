@@ -148,7 +148,8 @@ class UserEmail(models.Model):
         null=True,
         blank=True
     )
-    email_code_date = models.DateField(
+    # email 인증 코드 사용 주기 설정을 위해
+    email_code_date = models.DateTimeField(
         verbose_name='코드 생성 날짜',
         null=True,
         blank=True
@@ -311,3 +312,41 @@ class UserInfo(AbstractBaseUser, PermissionsMixin):
     def email_user(self, subject, message, from_email=None, **kwargs):
         """사용자에게 이메일을 보냅니다."""
         send_mail(subject, message, from_email, [self.email], **kwargs)
+
+
+
+class EmailLog(models.Model):
+    """
+    이메일 전송 시도 및 최종 실패 기록을 위한 모델
+    """
+    email = models.EmailField(
+        verbose_name="대상 이메일"
+    )
+    task_id = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        verbose_name="Celery 작업 ID"
+    )
+    log_type = models.CharField(
+        max_length=50,
+        default='FAILURE',
+        verbose_name="로그 타입 (SUCCESS/FAILURE 등)"
+    )
+    error_message = models.TextField(
+        blank=True,
+        null=True,
+        verbose_name="오류 메시지"
+    )
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name="기록 시간"
+    )
+
+    class Meta:
+        verbose_name = "이메일 로그"
+        verbose_name_plural = "이메일 로그"
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'[{self.log_type}] {self.email} - {self.created_at.strftime("%Y-%m-%d %H:%M:%S")}'

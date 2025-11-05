@@ -9,6 +9,7 @@ from .serializers import UserRegistrationSerializer, UserLoginSerializer, OasGro
 from django.contrib.auth import login
 from django.db import transaction
 from django.utils import timezone
+from datetime import timedelta
 
 # mail 처리 부분
 from django.core.mail import send_mail
@@ -132,60 +133,167 @@ def send_auth_email(email, code):
         print(f"이메일 전송 실패: {e}")
         return "이메일 전송 실패"
 
+# class EmailAuthSendView(APIView):
+#     """
+#     이메일로 인증 코드를 전송하고, UserEmail 모델을 업데이트합니다.
+#     """
+#     # 인증이 필요 없는 API입니다 (로그인 전에 사용).
+#     # permission_classes = [permissions.AllowAny] # 필요에 따라 추가
+
+#     # 1. 인증 클래스 지정: JWT 토큰을 사용하여 사용자를 인증합니다.
+#     authentication_classes = [JWTAuthentication]
+#     # 2. 권한 클래스 지정: 인증된 사용자만 접근을 허용합니다.
+#     permission_classes = [IsAuthenticated]
+
+#     @transaction.atomic # DB 업데이트와 이메일 전송을 원자적으로 처리
+#     def post(self, request):
+#         # request.user는 JWT 토큰을 통해 인증된 UserInfo 인스턴스입니다.
+#         user = request.user
+
+#         # Serializer에 요청 객체를 context로 전달하여 Serializer 내부에서 user 정보를 사용하도록 합니다.
+#         serializer = EmailAuthSendSerializer(data=request.data, context={'request': request})
+#         serializer.is_valid(raise_exception=True)
+
+#         # 유효성 검사를 통과했으므로, 이메일 주소와 email_info 객체를 사용자 인스턴스에서 가져옵니다.
+#         email = user.email
+#         email_info = serializer.context['email_info'] # Serializer에서 가져옴
+
+
+#         # check. email 다시 전송 제한 체크 부분
+#         # 예: if email_info.email_auth_count > 5: email_info.email_auth_lock = True
+#         # if email_info.email_refresh_count > 3 :
+#         #     if email_info.email_auth_lock != True :
+#         #         print("Email 다시 전송 4회 초과 하여 잠금")
+#         #         email_info.email_auth_lock = True
+#         #         email_info.email_lock_time = timezone.now()
+#         #         email_info.save()
+#         #         return Response({
+#         #             "message": "Email 다시 전송 4회 초과 하여 잠김. 5분 뒤에 다시 해주세요.",
+#         #             "code" : "RE003"
+#         #         }, status=status.HTTP_200_OK)
+#         #     if email_info.email_lock_time and (timezone.now() - email_info.email_lock_time) > timedelta(minutes=1):
+#         #         # 5분이 지났을 경우 실행할 로직 (예: 잠금 해제)
+#         #         print("5분 이상 경과했습니다. 잠금을 해제합니다.")
+#         #         email_info.email_auth_lock = False
+#         #         email_info.email_refresh_count = 0
+#         #         email_info.email_lock_time = None # 잠금 시간 초기화
+#         #         email_info.save()
+#         #     else:
+#         #         # 5분이 아직 지나지 않았을 경우
+#         #         print("아직 5분이 지나지 않았습니다.")
+#         #         return Response({
+#         #             "message": "아직 5분이 지나지 않았습니다.",
+#         #             "code" : "RE004"
+#         #         }, status=status.HTTP_200_OK)
+
+#         # 1. 6자리 랜덤 인증 코드 생성
+#         auth_code = ''.join(random.choices('0123456789', k=6))
+
+#         # 2. UserEmail 모델 필드 업데이트 및 카운트 증가 로직 (미리 정의된 필드 활용)
+#         email_info.email_auth_lock = False
+#         email_info.email_auth_code = auth_code
+#         email_info.email_lock_time = None
+#         email_info.email_refresh_count += 1   # 다시 전송 횟수 증가
+#         email_info.email_code_date = timezone.now() # 인증 시도 날짜 기록
+
+#         email_info.save()
+#         # 3. 인증 이메일 전송을 Celery 작업 큐에 위임 (비동기 처리)
+#         # delay()를 사용하면 이 함수는 즉시 반환되며, 웹 서버는 차단되지 않습니다.
+#         send_auth_email_task.delay(email, auth_code) # 이메일과 코드를 인자로 전달
+
+#         return Response({
+#             "message": "인증 코드가 이메일로 전송되었습니다. 코드를 확인해 주세요.",
+#             "code" : "RE000"
+#         }, status=status.HTTP_200_OK)
+
 class EmailAuthSendView(APIView):
     """
-    이메일로 인증 코드를 전송하고, UserEmail 모델을 업데이트합니다.
+    이메일로 인증 코드를 전송하고, UserEmail 모델의 상태를 업데이트합니다.
+    (잠금 해제, 카운트 증가, 신규 잠금 등)
     """
-    # 인증이 필요 없는 API입니다 (로그인 전에 사용).
-    # permission_classes = [permissions.AllowAny] # 필요에 따라 추가
-
-    # 1. 인증 클래스 지정: JWT 토큰을 사용하여 사용자를 인증합니다.
     authentication_classes = [JWTAuthentication]
-    # 2. 권한 클래스 지정: 인증된 사용자만 접근을 허용합니다.
-    permission_classes = [IsAuthenticated]
+    permission_classes = [permissions.IsAuthenticated] # IsAuthenticated로 수정 권장
 
-    @transaction.atomic # DB 업데이트와 이메일 전송을 원자적으로 처리
+    @transaction.atomic # DB 업데이트와 이메일 전송 요청을 원자적으로 처리
     def post(self, request):
-        # request.user는 JWT 토큰을 통해 인증된 UserInfo 인스턴스입니다.
         user = request.user
-
         # Serializer에 요청 객체를 context로 전달하여 Serializer 내부에서 user 정보를 사용하도록 합니다.
         serializer = EmailAuthSendSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
 
-        # 유효성 검사를 통과했으므로, 이메일 주소와 email_info 객체를 사용자 인스턴스에서 가져옵니다.
-        email = user.email
-        email_info = serializer.context['email_info'] # Serializer에서 가져옴
+        # 1. 유효성 검사
+        # Serializer는 이제 5분 미만 잠금 상태일 때만 오류를 발생시킴
+        serializer.is_valid(raise_exception=True)
 
-        # 1. 6자리 랜덤 인증 코드 생성
+        # 2. 필요 데이터 준비
+        email = user.email
+        email_info = serializer.context['email_info']
+
+        if not email_info:
+            # 이 코드가 실행되면, Serializer가 유효성 검사를 통과했음에도
+            # email_info를 context에 저장하지 못했다는 뜻입니다.
+            # 이는 Serializer 내부에 치명적인 버그가 있거나,
+            # UserEmail.DoesNotExist 예외 처리가 잘못된 경우입니다.
+            return Response({
+                "detail": "인증 정보 객체를 찾을 수 없습니다. (내부 오류)",
+                "code": "ERROR_NO_EMAIL_INFO"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
         auth_code = ''.join(random.choices('0123456789', k=6))
 
-        # 2. UserEmail 모델 필드 업데이트 및 카운트 증가 로직 (미리 정의된 필드 활용)
+        response_message = "인증 코드가 이메일로 전송되었습니다. 코드를 확인해 주세요."
+        response_code = "RE000"
+
+        # 3. 비즈니스 로직 처리 (DB 상태 변경)
+
+        # [A] 잠금 상태였으나 5분이 경과하여 잠금을 해제하고 카운트를 리셋하는 경우
+        if email_info.email_auth_lock:
+            # Serializer가 5분 미만은 걸러냈으므로, 이 로직은 5분이 지났다는 의미
+            print("5분이 경과하여 잠금을 해제하고 카운트를 1로 초기화합니다.")
+            email_info.email_auth_lock = False
+            email_info.email_lock_time = None
+            email_info.email_refresh_count = 1 # 1로 초기화
+
+        # [B] 잠금 상태가 아니었으며, 카운트를 증가시키는 경우
+        else:
+            email_info.email_refresh_count += 1
+            print(f"카운트를 1 증가시킵니다. 현재: {email_info.email_refresh_count}")
+
+            # [C] 카운트 증가 결과, 4회 이상이 되어 잠금이 *새로* 설정되는 경우
+            if email_info.email_refresh_count > 3:
+                print("카운트가 4회가 되어 계정을 잠급니다.")
+                email_info.email_auth_lock = True
+                email_info.email_lock_time = timezone.now()
+                response_message = "코드가 전송되었습니다. 하지만 4회 이상 요청으로 5분간 계정이 잠깁니다."
+                response_code = "RE003" # 잠금 알림 코드
+
+        # [D] 공통 작업: 인증 코드 및 시간 업데이트
         email_info.email_auth_code = auth_code
-        #email_info.email_auth_count += 1      # 인증 시도 횟수 증가
-        email_info.email_refresh_count += 1   # 다시 전송 횟수 증가
-        email_info.email_code_date = timezone.now().date() # 인증 시도 날짜 기록
-
-        # TODO: 여기에 재전송 횟수/인증 횟수 제한 로직을 추가해야 합니다.
-        # 예: if email_info.email_auth_count > 5: email_info.email_auth_lock = True
-
+        email_info.email_code_date = timezone.now()
         email_info.save()
 
-        # 3. 인증 이메일 전송 (실제 SMTP 설정 필요)
-        #send_auth_email(email, auth_code)
+        # 4. 이메일 전송 (비동기)
+        send_auth_email_task.delay(email, auth_code) # 실제 운영 시 주석 해제
+        print(f"비동기 이메일 전송 요청: {email}로 {auth_code} 전송") # 테스트용 로그
 
-        # 3. 인증 이메일 전송을 Celery 작업 큐에 위임 (비동기 처리)
-        # delay()를 사용하면 이 함수는 즉시 반환되며, 웹 서버는 차단되지 않습니다.
-        send_auth_email_task.delay(email, auth_code) # 이메일과 코드를 인자로 전달
-
+        # 5. 응답 반환
         return Response({
-            "message": "인증 코드가 이메일로 전송되었습니다. 코드를 확인해 주세요.",
-            "email": email,
-            #"send_count": email_info.email_refresh_count
+            "detail": [ response_message ],
+            #"code": response_code
         }, status=status.HTTP_200_OK)
 
 # ----------------------------------------------------------------------
 # 5. email 인증 코드 검증
+#
+# 표준 DRF 동작 원리 설명
+# DRF에서 Serializer의 is_valid(raise_exception=True)를 호출하면 다음과 같이 작동합니다:
+#
+# 1. is_valid() 호출 → validate() 메서드 실행.
+# 2. validate() 메서드 내에서 유효성 검사 실패 시 ValidationError (혹은 DRFValidationError)를 raise 합니다.
+# 3. raise_exception=True 옵션 덕분에, 이 예외는 DRF의 예외 핸들러에 의해 자동으로 잡히고,
+#    표준 에러 응답 형식(보통 HTTP 400 Bad Request와 JSON 형식의 에러 메시지)으로 클라이언트에게 반환됩니다.
+#
 # ----------------------------------------------------------------------
 class EmailAuthConfirmView(APIView):
     """

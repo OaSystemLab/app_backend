@@ -28,6 +28,9 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
+
+from django.utils import timezone
+from datetime import timedelta
 # ----------------------------------------------------------------------
 # 1. 사용자 등록 View
 # ----------------------------------------------------------------------
@@ -121,7 +124,7 @@ class UserLoginSerializer(serializers.Serializer):
         password = data.get('password')
 
         if not email or not password:
-            raise serializers.ValidationError(_("이메일과 비밀번호는 필수 입력 항목입니다."))
+            raise serializers.ValidationError({"detail": "이메일과 비밀번호는 필수 입력 항목입니다."})
 
         # 추가적인 복잡한 인증(DB 조회, 암호 비교)은 view나 custom authenticate()에서 처리
         return data
@@ -161,8 +164,8 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             # 인증 실패 시 발생하는 AuthenticationFailed를 가로채고,
             # Custom Validation Error를 발생시켜 non_field_errors를 커스텀합니다.
             raise serializers.ValidationError({
-                "detail": _("제공된 인증 정보가 유효하지 않습니다. 이메일 또는 비밀번호를 확인해 주세요.")
-            }, code='authentication')
+                "detail": "제공된 인증 정보가 유효하지 않습니다. 이메일 또는 비밀번호를 확인해 주세요."
+            })
 
         # 사용자 ID를 응답 데이터에 직접 추가합니다.
         # self.user는 TokenObtainPairSerializer의 validate 과정에서 설정됩니다.
@@ -206,41 +209,68 @@ class EmailAuthSendSerializer(serializers.Serializer):
 
     def validate(self, data):
         # View에서 self.request.user를 context로 넘겨받는다고 가정합니다.
-        user = self.context['request'].user
+        # context['request']는 view에서 self.get_serializer_context()를 통해 넘어와야 함.
+        request = self.context.get('request')
 
-        # 1. 사용자 객체 인증 여부 확인 (수정된 부분)
+        if not request:
+            raise DRFValidationError("요청 객체를 context에서 찾을 수 없습니다. View 설정을 확인하세요.")
+
+        user = request.user
+
+        # 1. 사용자 객체 인증 여부 확인
         if not user.is_authenticated:
             # DRFValidationError를 사용하여 detail 메시지 반환
             raise DRFValidationError(
-                {"detail": _("요청을 처리하려면 유효한 로그인 토큰이 필요합니다.")},
+                {"detail": "요청을 처리하려면 유효한 로그인 토큰이 필요합니다."},
                 code='not_authenticated'
             )
 
-        # 2. UserEmail 객체 조회 (수정된 부분)
+        # 2. UserEmail 객체 조회 (일반적으로 user 모델에 OnetoOne으로 연결되어 있다고 가정)
         try:
+            # UserEmail 모델명을 가정합니다. 실제 모델명으로 변경하세요.
             email_info = user.email_info
-        except UserEmail.DoesNotExist:
+        except Exception: # UserEmail.DoesNotExist 대신 일반 예외 처리
+            # UserEmail 모델명 import 후 UserEmail.DoesNotExist를 사용하는 것이 더 정확합니다.
             raise DRFValidationError(
-                {"detail": _("계정에 연결된 인증 정보가 누락되었습니다. 관리자에게 문의해 주세요.")},
-                code='info_missing'
+                {"detail": "계정에 연결된 인증 정보가 누락되었습니다. 관리자에게 문의해 주세요."},
+                code='missing_email_info'
             )
 
-        # 3. 이미 인증이 완료되었는지 확인
+        # 3. 이미 인증이 완료되었는지 확인 (주석 해제 시)
         # if email_info.email_auth:
         #     raise DRFValidationError(
-        #         {"detail": _("이미 이메일 인증이 완료된 계정입니다.")},
+        #         {"detail": "이미 이메일 인증이 완료된 계정입니다."},
         #         code='already_verified'
         #     )
 
-        # 4. 인증 잠금 상태 확인 (로직은 그대로 유지)
-        # TODO. 로직 처리 할때 ..
-        # if email_info.email_auth_lock:
-        #     raise serializers.ValidationError(_("인증 시도 횟수 초과로 계정이 일시적으로 잠겼습니다. 나중에 다시 시도해 주세요."))
+        # 4. 인증 잠금 상태 확인 및 잠금 해제 조건 검사 (DB 수정 제외)
 
-        # 유효성 검사를 통과한 UserEmail 객체를 context에 저장하여 view에서 사용
+        # **A. 현재 잠금 상태인지 확인**
+        if email_info.email_auth_lock:
+            # 잠금 해제 조건: 5분이 경과했는지 확인
+            if email_info.email_lock_time and (timezone.now() - email_info.email_lock_time) > timedelta(minutes=5):
+                # 5분 경과: 잠금 해제 가능 상태. View에서 DB 수정 처리
+                pass # 유효성 검사 통과
+            else:
+                # 5분 미경과: 여전히 잠금 상태, 오류 발생
+                raise DRFValidationError(
+                    {"detail": "이메일 재전송 요청 횟수가 초과되어 계정이 잠겼습니다. 5분 후에 다시 시도해 주세요."},
+                    code='locked_out'
+                )
+
+        # **B. 잠금 필요 조건 검사 (카운트 4회 초과)**
+        # 현재 잠금 상태가 아니지만, 카운트가 초과된 경우
+        if email_info.email_refresh_count > 3:
+            # 잠금 상태로 전환해야 함. View에서 DB 수정 처리
+            raise DRFValidationError(
+                {"detail": "이메일 재전송 요청 횟수가 초과되어 계정이 잠겼습니다. 5분 후에 다시 시도해 주세요."},
+                code='lock_required'
+            )
+
+        # 유효성 검사를 통과한 UserEmail 객체를 context에 저장하여 view의 create/perform_create에서 사용
         self.context['email_info'] = email_info
 
-        return data # 이제 data는 빈 딕셔너리가 될 수 있습니다.
+        return data # 유효성 검사를 통과한 데이터 반환
 # ----------------------------------------------------------------------
 # 6. 인증 메일서 받은 코드 검증 하기 전에 체크 하는 부분
 # ----------------------------------------------------------------------
@@ -269,17 +299,30 @@ class EmailAuthConfirmSerializer(serializers.Serializer):
         if not user.is_authenticated:
             # DRFValidationError를 사용하여 detail 메시지 반환
             raise DRFValidationError(
-                {"detail": _("로그인이 필요합니다.")},
-                code='not_authenticated'
+                {"detail": "로그인이 필요합니다."},
             )
         # 2. UserEmail 객체 확인
         try:
             email_info = user.email_info
         except UserEmail.DoesNotExist:
             raise DRFValidationError(
-                {"detail": _("사용자 이메일 인증 정보가 누락되었습니다.")},
-                code='info_missing'
+                {"detail": "사용자 이메일 인증 정보가 누락되었습니다."},
             )
+
+        # 3. code 유효 시간 체크
+        if email_info.email_code_date is None:
+            # 원하는 응답 구조를 'detail' 인자로 직접 전달합니다.
+            raise DRFValidationError(
+                 {"detail": "사용자 이메일 인증 정보가 누락되었습니다."},
+            )
+        if (timezone.now() - email_info.email_code_date) > timedelta(minutes=1):
+            # 원하는 응답 구조를 'detail' 인자로 직접 전달합니다.
+            raise DRFValidationError(
+                {
+                    "detail": "CODE 유효 시간이 지났습니다.(5분)"
+                }
+            )
+
         # 3. 이미 인증이 완료되었는지 확인
         # if email_info.email_auth:
         #     raise DRFValidationError(
@@ -290,8 +333,7 @@ class EmailAuthConfirmSerializer(serializers.Serializer):
         if not email_info.email_auth_code or email_info.email_auth_code != auth_code:
             # === 이 부분을 DRFValidationError를 사용하여 detail 응답으로 변경 ===
             raise DRFValidationError(
-                {"detail": _("인증 코드가 일치하지 않습니다. 다시 확인해 주세요.")},
-                code='code_mismatch'
+                {"detail": "인증 코드가 일치하지 않습니다. 다시 확인해 주세요."},
             )
 
         # TODO: 여기에 코드 유효 기간 확인 로직을 추가할 수 있습니다.

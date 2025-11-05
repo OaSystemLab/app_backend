@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from .models import UserInfo, UserEmail # UserInfo, UserEmail 모델 임포트
+from .models import UserInfo, UserEmail, EmailLog
 
 # 1. UserEmail 모델을 UserInfo 관리자 페이지에 인라인으로 표시하기 위한 클래스
 class UserEmailInline(admin.StackedInline):
@@ -17,6 +17,7 @@ class UserEmailInline(admin.StackedInline):
         'email_auth_count',
         'email_auth_date',
         'email_auth_code',
+        'email_code_date',
         'email_refresh_count',
         'email_auth_lock',
         'email_lock_time',
@@ -72,3 +73,40 @@ class UserInfoAdmin(BaseUserAdmin):
         if obj is None:
             return [] # 사용자 추가 페이지일 때는 인라인을 반환하지 않음
         return [UserEmailInline] # 사용자 편집 페이지일 때는 인라인을 반환
+
+
+
+
+@admin.register(EmailLog)
+class EmailLogAdmin(admin.ModelAdmin):
+    # Admin 페이지에 표시할 필드
+    list_display = (
+        'email',
+        'log_type',
+        'created_at',
+        'task_id',
+        'error_message_summary' # 짧은 오류 메시지 요약 함수 사용
+    )
+    # 필터링 옵션
+    list_filter = (
+        'log_type',
+        'created_at'
+    )
+    # 검색 필드
+    search_fields = (
+        'email',
+        'error_message'
+    )
+    # 수정할 수 없는 필드 설정 (읽기 전용)
+    readonly_fields = (
+        'email',
+        'task_id',
+        'log_type',
+        'error_message',
+        'created_at'
+    )
+
+    # 긴 오류 메시지를 Admin 목록에서 짧게 보여주기 위한 함수
+    def error_message_summary(self, obj):
+        return obj.error_message[:100] + '...' if obj.error_message and len(obj.error_message) > 100 else obj.error_message
+    error_message_summary.short_description = '오류 요약'
