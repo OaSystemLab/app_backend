@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import UserRegistrationView, UserLoginView, OasGroupListAPIView, EmailAuthSendView, EmailAuthConfirmView
+from .views import UserRegistrationView, UserLoginView, OasGroupListAPIView, EmailAuthSendView, EmailAuthConfirmView, EmailChangeRequestView, EmailChangeVerifyView
 
 
 urlpatterns = [
@@ -20,5 +20,8 @@ urlpatterns = [
     # 4. 이메일 인증 코드 확인 및 완료
     # POST /api/v1/accounts/email/confirm/
     path('email/confirm/', EmailAuthConfirmView.as_view(), name='email-auth-confirm'),
+
+    path('email/change/request/', EmailChangeRequestView.as_view(), name='email_change_request'),
+    path('email/change/verify/', EmailChangeVerifyView.as_view(), name='email_change_verify'),
 
 ]

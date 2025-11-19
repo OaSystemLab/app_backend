@@ -31,6 +31,11 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from django.utils import timezone
 from datetime import timedelta
+from django.db import transaction
+
+from .tasks import send_auth_email_task # Celery Task import
+
+import random
 # ----------------------------------------------------------------------
 # 1. 사용자 등록 View
 # ----------------------------------------------------------------------
@@ -144,6 +149,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         # 여기서는 UserInfo 모델의 id 값을 추가합니다.
         token['user_id'] = user.id  # user는 인증된 UserInfo 인스턴스입니다.
         token['nick_name'] = user.nick_name # 닉네임도 추가 가능
+        token['oas_auth'] = False
 
         # UserEmail 모델의 이메일 인증 상태를 추가합니다.
         # related_name='email_info'로 접근합니다.
@@ -171,6 +177,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         # self.user는 TokenObtainPairSerializer의 validate 과정에서 설정됩니다.
         data['user_id'] = self.user.id
         data['nick_name'] = self.user.nick_name
+        data['oas_auth'] = False
 
         # family_group_id도 추가
         #data['family_group_id'] = self.user.family_group_id
@@ -245,25 +252,59 @@ class EmailAuthSendSerializer(serializers.Serializer):
 
         # 4. 인증 잠금 상태 확인 및 잠금 해제 조건 검사 (DB 수정 제외)
 
+        # 예외 상황 발생
+        # 이슈. email_auth_lock 값이 있으나 email_lock_time 없는 경우 발생
+        #      위 같은 상황이면 계속 해서 잠김 상태로 가게 됨.
+        # TODO.  email_auth_lock, email_lock_time 둘 중에 하나만 있는경우 처리 방안은?
+        #        email_auth_lock True email_lock_time None 경우는 email_auth_lock 해제 하고 처음 부터 하게함
+        #        email_auth_lock False email_lock_time 있는 경우는 email_lock_time 초기화
+
+        # 버그성 이슈 처리
+        if email_info.email_refresh_count > 3 and email_info.email_auth_lock is True and email_info.email_lock_time is None :
+            print("버그 이슈 email_refresh_count > 3 , email_auth_lock is True,email_lock_time is None ")
+            self.context['email_info'] = email_info
+            return data
+
+        if email_info.email_refresh_count > 3 and email_info.email_auth_lock is False and email_info.email_lock_time is not None :
+            print("버그 이슈 email_refresh_count > 3, email_auth_lock is False,email_lock_time is not None ")
+            self.context['email_info'] = email_info
+            return data
+
+        if email_info.email_refresh_count > 3 and email_info.email_auth_lock is False and email_info.email_lock_time is  None :
+            print("버그 이슈 email_refresh_count > 3, email_auth_lock is False,email_lock_time is None ")
+            self.context['email_info'] = email_info
+            return data
+
+
         # **A. 현재 잠금 상태인지 확인**
         if email_info.email_auth_lock:
             # 잠금 해제 조건: 5분이 경과했는지 확인
+            print("email_info.email_auth_lock.")
             if email_info.email_lock_time and (timezone.now() - email_info.email_lock_time) > timedelta(minutes=5):
                 # 5분 경과: 잠금 해제 가능 상태. View에서 DB 수정 처리
-                pass # 유효성 검사 통과
+                print("유효성 검사 통과")
+                self.context['email_info'] = email_info
+                return data
             else:
                 # 5분 미경과: 여전히 잠금 상태, 오류 발생
                 raise DRFValidationError(
-                    {"detail": "이메일 재전송 요청 횟수가 초과되어 계정이 잠겼습니다. 5분 후에 다시 시도해 주세요."},
-                    code='locked_out'
+                    {
+                        "detail": "이메일 재전송 요청 횟수가 초과되어 계정이 잠겼습니다. 5분 후에 다시 시도해 주세요.",
+                        "lock_time": email_info.email_lock_time
+                    },
+                    code='lock_required'
                 )
 
         # **B. 잠금 필요 조건 검사 (카운트 4회 초과)**
         # 현재 잠금 상태가 아니지만, 카운트가 초과된 경우
         if email_info.email_refresh_count > 3:
             # 잠금 상태로 전환해야 함. View에서 DB 수정 처리
+            print("잠금 상태")
             raise DRFValidationError(
-                {"detail": "이메일 재전송 요청 횟수가 초과되어 계정이 잠겼습니다. 5분 후에 다시 시도해 주세요."},
+                {
+                    "detail": "이메일 재전송 요청 횟수가 초과되어 계정이 잠겼습니다. 5분 후에 다시 시도해 주세요.",
+                    "lock_time": email_info.email_lock_time
+                },
                 code='lock_required'
             )
 
@@ -315,7 +356,7 @@ class EmailAuthConfirmSerializer(serializers.Serializer):
             raise DRFValidationError(
                  {"detail": "사용자 이메일 인증 정보가 누락되었습니다."},
             )
-        if (timezone.now() - email_info.email_code_date) > timedelta(minutes=1):
+        if (timezone.now() - email_info.email_code_date) > timedelta(minutes=5):
             # 원하는 응답 구조를 'detail' 인자로 직접 전달합니다.
             raise DRFValidationError(
                 {
@@ -342,3 +383,207 @@ class EmailAuthConfirmSerializer(serializers.Serializer):
         self.context['email_info'] = email_info
 
         return data
+
+
+# ----------------------------------------------------------------------
+# 7. 이메일 변경 요청
+#
+# 참고. 이메일 인증 잠김 상태는 체크 하지 않는다.(잘 못된 이메일이 적용된 경우)
+#
+# ----------------------------------------------------------------------
+MAX_ATTEMPTS = 3 # 최대 요청 횟수 (4회 초과 시 잠금)
+LOCK_DURATION = 5 # 잠금 시간 (분)
+
+def generate_verification_code():
+    return ''.join(random.choices('0123456789', k=6))
+
+class EmailChangeRequestSerializer(serializers.Serializer):
+    new_email = serializers.EmailField(max_length=100)
+
+    @transaction.atomic # 잠금 해제와 횟수 초기화 시 DB 반영을 위해 @transaction.atomic을 validate에 적용합니다.
+    def validate(self, data):
+        user = self.context['request'].user
+        email_info = user.email_info # UserEmail 인스턴스
+        new_email = data.get('new_email')
+
+        # 1. 🛑 잠금 상태 확인 및 처리 (새로 추가된 핵심 로직)
+        if email_info.email_reauth_lock:
+            lock_time = email_info.email_reauth_date
+            # 잠금 해제 예상 시간 = 잠금 시간 + 5분
+            unlock_time = lock_time + timedelta(minutes=LOCK_DURATION)
+
+            if timezone.now() < unlock_time:
+                # 아직 잠금 시간이 지나지 않았음
+                remaining_seconds = (unlock_time - timezone.now()).total_seconds()
+                remaining_minutes = int(remaining_seconds // 60)
+
+                # 잠금 상태이므로 요청 거부
+                raise DRFValidationError({
+                    "detail": f"이메일 변경 요청 횟수를 초과했습니다. 잠금 해제까지 약 {remaining_minutes + 1}분 남았습니다."
+                })
+            else:
+                # 5분이 지났으므로 잠금 해제 및 횟수 초기화
+                email_info.email_reauth_lock = False
+                email_info.email_reauth_count = 0
+                email_info.email_reauth_date = None
+                # DB에 반영 (잠금 해제 후 다음 유효성 검사를 진행해야 하므로 미리 저장)
+                email_info.save(update_fields=[
+                    'email_reauth_lock', 'email_reauth_count', 'email_reauth_date'
+                ])
+
+
+        # --- 기존 유효성 검사 로직 ---
+        # 1. 새 이메일이 기존 이메일과 같은지 확인
+        if new_email == user.email:
+            raise DRFValidationError({"detail": "기존 이메일 주소와 동일합니다."})
+
+        # 2. 새 이메일이 이미 다른 계정의 최종 이메일로 사용 중인지 확인
+        if UserInfo.objects.filter(email=new_email).exists():
+            raise DRFValidationError({"detail": "사용 불가 이메일 주소입니다."})
+
+        # 3. 새 이메일이 현재 다른 계정의 변경 대기 이메일로 사용 중인지 확인
+        if UserInfo.objects.filter(new_email=new_email).exclude(pk=user.pk).exists():
+            raise DRFValidationError({"detail": "현재 다른 사용자가 변경 요청 중인 이메일 주소입니다."})
+
+        return data
+
+    @transaction.atomic
+    def save(self, **kwargs):
+        user = self.context['request'].user
+        new_email = self.validated_data['new_email']
+        email_info = user.email_info # UserEmail 인스턴스 (Related Name: email_info)
+        auth_code = generate_verification_code() # 인증 코드 생성
+
+        # 1. UserInfo: 새로운 이메일을 임시 필드에 저장
+        user.new_email = new_email
+        user.save(update_fields=['new_email'])
+
+        # 2. UserEmail: 재인증 횟수 확인 및 잠금 (횟수가 4회 이상이면 잠금)
+        email_info.email_reauth_count += 1
+
+        if email_info.email_reauth_count > MAX_ATTEMPTS:
+            # 💥 4회 초과 시 잠금 설정
+            email_info.email_reauth_lock = True
+            email_info.email_reauth_date = timezone.now()
+            email_info.save(update_fields=['email_reauth_lock', 'email_reauth_date', 'email_reauth_count'])
+
+            # 잠금이 설정되었으므로, 이메일 발송 없이 에러를 발생시키기 위해
+            # 여기서 예외를 발생시키거나, View에서 처리해야 합니다.
+            # Serializer의 save()에서는 일반적으로 예외를 발생시키지 않으므로,
+            # 이 로직은 validate()로 이동하는 것이 더 자연스럽습니다.
+            # ❗ NOTE: 이 로직은 `validate()`로 이동했으므로, 여기서는 횟수 증가만 수행합니다.
+
+        # 3. 코드 업데이트 및 저장 (인증 성공 또는 잠금 해제 후 다음 요청 시)
+        email_info.email_auth_code = auth_code
+        email_info.email_code_date = timezone.now()
+        email_info.save(update_fields=['email_reauth_count', 'email_auth_code', 'email_code_date'])
+
+        # 4. 이메일 전송
+        send_auth_email_task.delay(new_email, auth_code) # 실제 함수 호출
+
+        return user
+
+
+# ----------------------------------------------------------------------
+# 8. 이메일 변경 요청 인증
+# ----------------------------------------------------------------------
+class EmailChangeVerifySerializer(serializers.Serializer):
+    #new_email = serializers.EmailField(max_length=100)
+    code = serializers.CharField(max_length=10) # UserEmail.email_auth_code max_length에 맞춤
+
+    @transaction.atomic # 잠금 상태 변경, 횟수 증가 및 DB 반영을 원자적으로 처리
+    def validate(self, data):
+        user = self.context['request'].user
+        user_email_info = user.email_info
+
+        #new_email_input = data.get('new_email')
+        code_input = data.get('code')
+        requested_email = user.new_email
+
+        # 1. 🛑 잠금 상태 확인 및 처리 (요청 시 잠금 로직과 유사)
+        if user_email_info.email_reauth_lock:
+            lock_time = user_email_info.email_reauth_date
+            unlock_time = lock_time + timedelta(minutes=LOCK_DURATION)
+
+            if timezone.now() < unlock_time:
+                remaining_seconds = (unlock_time - timezone.now()).total_seconds()
+                remaining_minutes = int(remaining_seconds // 60)
+                raise DRFValidationError({
+                    "detail": f"이메일 재인증 시도 횟수를 초과했습니다. 잠금 해제까지 약 {remaining_minutes + 1}분 남았습니다."
+                })
+            else:
+                # 5분이 지났으므로 잠금 해제 및 횟수 초기화
+                user_email_info.email_reauth_lock = False
+                user_email_info.email_reauth_count = 0
+                user_email_info.email_reauth_date = None
+                user_email_info.save(update_fields=[
+                    'email_reauth_lock', 'email_reauth_count', 'email_reauth_date'
+                ])
+
+        # 2. 요청된 이메일 일치 확인
+        # if user.new_email is None or user.new_email != new_email_input:
+        #     raise DRFValidationError({"new_email": "변경 요청 중인 이메일 주소가 아니거나 요청이 진행 중이지 않습니다."})
+
+        # 3. 인증 코드 일치 확인 및 횟수/잠금 로직 (인증 실패 시)
+        if user_email_info.email_auth_code != code_input:
+
+            # ❗ 인증 실패 시, 횟수 증가 및 잠금 처리
+            user_email_info.email_reauth_count += 1
+
+            if user_email_info.email_reauth_count > MAX_ATTEMPTS:
+                # 잠금 (Lock) 실행
+                user_email_info.email_reauth_lock = True
+                user_email_info.email_reauth_date = timezone.now()
+                user_email_info.save(update_fields=[
+                    'email_reauth_count', 'email_reauth_lock', 'email_reauth_date'
+                ])
+                raise DRFValidationError({
+                    "code": f"인증 코드가 {MAX_ATTEMPTS}회 이상 잘못 입력되어 계정이 {LOCK_DURATION}분 동안 잠금 처리됩니다."
+                })
+            else:
+                # 횟수만 증가
+                user_email_info.save(update_fields=['email_reauth_count'])
+                raise DRFValidationError({
+                    "code": f"인증 코드가 일치하지 않습니다. 남은 시도 횟수: {MAX_ATTEMPTS - user_email_info.email_reauth_count}"
+                })
+
+        # 4. 인증 코드 유효 기간 확인 (코드 일치 및 잠금 통과 시 체크)
+        code_age = timezone.now() - user_email_info.email_code_date
+        if code_age.total_seconds() > 300: # 300초 = 5분이라고 가정
+             raise DRFValidationError({"code": "인증 코드가 만료되었습니다. 다시 요청해 주세요."})
+
+        # 모든 유효성 검사 통과
+        return data
+
+    @transaction.atomic
+    def save(self):
+        user = self.context['request'].user
+        user_email_info = user.email_info
+
+        # 1. 이메일 업데이트 (Core Logic)
+        user.email = user.new_email
+
+        # 2. UserEmail 초기화 구조: 성공했으므로 모든 상태 초기화
+        user_email_info.email_auth = True # 이메일 변경 완료
+        user_email_info.email_auth_date = timezone.now().date()
+
+        # 👇 초기화 (재인증 상태로 만들기)
+        user_email_info.email_auth_count = 0
+        user_email_info.email_auth_code = None
+        user_email_info.email_code_date = None
+        user_email_info.email_refresh_count = 0
+        user_email_info.email_auth_lock = False
+        user_email_info.email_lock_time = None
+        user_email_info.email_reauth_count = 0
+        user_email_info.email_reauth_lock = False
+        user_email_info.email_reauth_date = None
+
+        user_email_info.save()
+
+        # 3. 임시 필드 초기화 및 UserInfo 업데이트
+        user.new_email = None
+        user.save(update_fields=['email', 'new_email'])
+
+        # 4. (선택 사항) JWT 토큰 무효화 로직 추가...
+
+        return user

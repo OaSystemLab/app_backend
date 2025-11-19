@@ -5,7 +5,7 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from .models import OasGroup
-from .serializers import UserRegistrationSerializer, UserLoginSerializer, OasGroupSerializer, EmailAuthSendSerializer, EmailAuthConfirmSerializer
+from .serializers import UserRegistrationSerializer, UserLoginSerializer, OasGroupSerializer, EmailAuthSendSerializer, EmailAuthConfirmSerializer, EmailChangeRequestSerializer, EmailChangeVerifySerializer
 from django.contrib.auth import login
 from django.db import transaction
 from django.utils import timezone
@@ -133,79 +133,6 @@ def send_auth_email(email, code):
         print(f"이메일 전송 실패: {e}")
         return "이메일 전송 실패"
 
-# class EmailAuthSendView(APIView):
-#     """
-#     이메일로 인증 코드를 전송하고, UserEmail 모델을 업데이트합니다.
-#     """
-#     # 인증이 필요 없는 API입니다 (로그인 전에 사용).
-#     # permission_classes = [permissions.AllowAny] # 필요에 따라 추가
-
-#     # 1. 인증 클래스 지정: JWT 토큰을 사용하여 사용자를 인증합니다.
-#     authentication_classes = [JWTAuthentication]
-#     # 2. 권한 클래스 지정: 인증된 사용자만 접근을 허용합니다.
-#     permission_classes = [IsAuthenticated]
-
-#     @transaction.atomic # DB 업데이트와 이메일 전송을 원자적으로 처리
-#     def post(self, request):
-#         # request.user는 JWT 토큰을 통해 인증된 UserInfo 인스턴스입니다.
-#         user = request.user
-
-#         # Serializer에 요청 객체를 context로 전달하여 Serializer 내부에서 user 정보를 사용하도록 합니다.
-#         serializer = EmailAuthSendSerializer(data=request.data, context={'request': request})
-#         serializer.is_valid(raise_exception=True)
-
-#         # 유효성 검사를 통과했으므로, 이메일 주소와 email_info 객체를 사용자 인스턴스에서 가져옵니다.
-#         email = user.email
-#         email_info = serializer.context['email_info'] # Serializer에서 가져옴
-
-
-#         # check. email 다시 전송 제한 체크 부분
-#         # 예: if email_info.email_auth_count > 5: email_info.email_auth_lock = True
-#         # if email_info.email_refresh_count > 3 :
-#         #     if email_info.email_auth_lock != True :
-#         #         print("Email 다시 전송 4회 초과 하여 잠금")
-#         #         email_info.email_auth_lock = True
-#         #         email_info.email_lock_time = timezone.now()
-#         #         email_info.save()
-#         #         return Response({
-#         #             "message": "Email 다시 전송 4회 초과 하여 잠김. 5분 뒤에 다시 해주세요.",
-#         #             "code" : "RE003"
-#         #         }, status=status.HTTP_200_OK)
-#         #     if email_info.email_lock_time and (timezone.now() - email_info.email_lock_time) > timedelta(minutes=1):
-#         #         # 5분이 지났을 경우 실행할 로직 (예: 잠금 해제)
-#         #         print("5분 이상 경과했습니다. 잠금을 해제합니다.")
-#         #         email_info.email_auth_lock = False
-#         #         email_info.email_refresh_count = 0
-#         #         email_info.email_lock_time = None # 잠금 시간 초기화
-#         #         email_info.save()
-#         #     else:
-#         #         # 5분이 아직 지나지 않았을 경우
-#         #         print("아직 5분이 지나지 않았습니다.")
-#         #         return Response({
-#         #             "message": "아직 5분이 지나지 않았습니다.",
-#         #             "code" : "RE004"
-#         #         }, status=status.HTTP_200_OK)
-
-#         # 1. 6자리 랜덤 인증 코드 생성
-#         auth_code = ''.join(random.choices('0123456789', k=6))
-
-#         # 2. UserEmail 모델 필드 업데이트 및 카운트 증가 로직 (미리 정의된 필드 활용)
-#         email_info.email_auth_lock = False
-#         email_info.email_auth_code = auth_code
-#         email_info.email_lock_time = None
-#         email_info.email_refresh_count += 1   # 다시 전송 횟수 증가
-#         email_info.email_code_date = timezone.now() # 인증 시도 날짜 기록
-
-#         email_info.save()
-#         # 3. 인증 이메일 전송을 Celery 작업 큐에 위임 (비동기 처리)
-#         # delay()를 사용하면 이 함수는 즉시 반환되며, 웹 서버는 차단되지 않습니다.
-#         send_auth_email_task.delay(email, auth_code) # 이메일과 코드를 인자로 전달
-
-#         return Response({
-#             "message": "인증 코드가 이메일로 전송되었습니다. 코드를 확인해 주세요.",
-#             "code" : "RE000"
-#         }, status=status.HTTP_200_OK)
-
 class EmailAuthSendView(APIView):
     """
     이메일로 인증 코드를 전송하고, UserEmail 모델의 상태를 업데이트합니다.
@@ -246,6 +173,23 @@ class EmailAuthSendView(APIView):
         response_code = "RE000"
 
         # 3. 비즈니스 로직 처리 (DB 상태 변경)
+        if email_info.email_refresh_count > 3 and email_info.email_auth_lock is True and email_info.email_lock_time is None :
+            print("이슈 email_refresh_count > 3, email_auth_lock is True,email_lock_time is None ")
+            email_info.email_auth_lock = False
+            email_info.email_lock_time = None
+            email_info.email_refresh_count = 1 # 1로 초기화
+
+
+        if email_info.email_refresh_count > 3 and email_info.email_auth_lock is False and email_info.email_lock_time is not None :
+            print("이슈 email_refresh_count > 3, email_auth_lock is False,email_lock_time is not None ")
+            email_info.email_lock_time = None
+            email_info.email_refresh_count = 1 # 1로 초기화
+
+        if email_info.email_refresh_count > 3 and  email_info.email_auth_lock is False and email_info.email_lock_time is None :
+            print("이슈 email_refresh_count > 3, email_auth_lock is False,email_lock_time is None ")
+            email_info.email_lock_time = None
+            email_info.email_refresh_count = 1 # 1로 초기화
+
 
         # [A] 잠금 상태였으나 5분이 경과하여 잠금을 해제하고 카운트를 리셋하는 경우
         if email_info.email_auth_lock:
@@ -265,6 +209,7 @@ class EmailAuthSendView(APIView):
                 print("카운트가 4회가 되어 계정을 잠급니다.")
                 email_info.email_auth_lock = True
                 email_info.email_lock_time = timezone.now()
+                print("timezone.now() : ", timezone.now())
                 response_message = "코드가 전송되었습니다. 하지만 4회 이상 요청으로 5분간 계정이 잠깁니다."
                 response_code = "RE003" # 잠금 알림 코드
 
@@ -315,6 +260,8 @@ class EmailAuthConfirmView(APIView):
         serializer.is_valid(raise_exception=True)
 
         email_info = serializer.context['email_info'] # Serializer에서 가져옴
+
+
         # 1. UserEmail 객체의 상태 업데이트
         email_info.email_auth = True
         email_info.email_auth_code = None # 인증 완료 후 코드 제거 (재사용 방지)
@@ -328,7 +275,57 @@ class EmailAuthConfirmView(APIView):
         email_info.save()
 
         return Response({
-            "message": ("이메일 인증이 성공적으로 완료되었습니다."),
+            "detail": ("이메일 인증이 성공적으로 완료되었습니다."),
             "email": user.email,
             "email_auth": True
         }, status=status.HTTP_200_OK)
+
+
+# ----------------------------------------------------------------------
+# 6. email 변경 요청
+# ----------------------------------------------------------------------
+class EmailChangeRequestView(APIView):
+    """새 이메일 주소를 제출하고 인증 코드를 요청합니다."""
+
+    # JWTAuthentication을 사용하신다면 그대로 두시면 됩니다.
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request): # @transaction.atomic은 Serializer.save()로 이동 권장
+        serializer = EmailChangeRequestSerializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+
+        # Serializer의 save() 메서드가 DB 저장 및 이메일 발송 로직을 모두 처리합니다.
+        serializer.save()
+
+        return Response(
+            {"detail": "새 이메일로 인증 코드가 발송되었습니다. 코드를 확인해 주세요."},
+            status=status.HTTP_200_OK
+        )
+
+# ----------------------------------------------------------------------
+# 7. 이메일 변경 확인 (Verify) View
+# ----------------------------------------------------------------------
+class EmailChangeVerifyView(APIView):
+    """
+    인증 코드를 제출하여 이메일 주소 변경을 완료합니다.
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        serializer = EmailChangeVerifySerializer(
+            data=request.data,
+            context={'request': request}
+        )
+        # validate 메서드에서 잠금/횟수 처리 및 인증 코드 일치 확인 후 예외 발생
+        serializer.is_valid(raise_exception=True)
+
+        # save 메서드에서 최종 이메일 업데이트 및 UserEmail 초기화가 이루어짐
+        serializer.save()
+
+        # 이메일 변경 후 재로그인을 유도하는 메시지 반환
+        return Response(
+            {"detail": "이메일 주소 변경이 성공적으로 완료되었습니다. 새 이메일로 다시 로그인해 주세요."},
+            status=status.HTTP_200_OK
+        )

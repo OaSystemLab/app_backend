@@ -180,7 +180,7 @@ class UserEmail(models.Model):
         default=False,
         null=False
     )
-    email_reauth_date = models.DateField(
+    email_reauth_date = models.DateTimeField(
         verbose_name='이메일 재 인증 잠김 날짜', # 이미지에는 '이메일 재 인증 잠김'이지만 Date 필드이므로 '날짜'로 변경
         null=True,
         blank=True
@@ -207,6 +207,14 @@ class UserInfo(AbstractBaseUser, PermissionsMixin):
         max_length=100,
         unique=True,
         null=False
+    )
+    # 👇 이메일 변경 요청 시 새로운 이메일을 임시로 저장할 필드 추가
+    new_email = models.EmailField(
+        verbose_name='새 이메일 (변경 대기 중)',
+        max_length=100,
+        unique=False,
+        null=True,     # 이메일 변경 요청이 없을 때는 None
+        blank=True
     )
 
     # 비밀번호는 AbstractBaseUser에 의해 기본적으로 처리됩니다.
