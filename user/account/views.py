@@ -4,8 +4,7 @@ from rest_framework import generics, permissions
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-from .models import OasGroup
-from .serializers import UserRegistrationSerializer, UserLoginSerializer, OasGroupSerializer, EmailAuthSendSerializer, EmailAuthConfirmSerializer, EmailChangeRequestSerializer, EmailChangeVerifySerializer
+#from .serializers import UserRegistrationSerializer, UserLoginSerializer, EmailAuthSendSerializer, EmailAuthConfirmSerializer, EmailChangeRequestSerializer, EmailChangeVerifySerializer
 from django.contrib.auth import login
 from django.db import transaction
 from django.utils import timezone
@@ -18,9 +17,20 @@ from django.conf import settings
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.authentication import JWTAuthentication # settings.py에 설정된 인증 클래스와 일치해야 합니다.
-from .serializers import CustomTokenObtainPairSerializer
+#from .serializers import CustomTokenObtainPairSerializer
 
 from .tasks import send_auth_email_task # Celery Task import
+
+# **하나의 import 문으로 필요한 모든 Serializer를 가져옵니다.**
+from .serializers import (
+    UserRegistrationSerializer,
+    EmailAuthSendSerializer,
+    EmailAuthConfirmSerializer,
+    EmailChangeVerifySerializer,
+    EmailChangeRequestSerializer,
+    CustomTokenObtainPairSerializer,
+    UserLoginSerializer
+)
 
 # ----------------------------------------------------------------------
 # 1. 사용자 등록 View
@@ -71,20 +81,6 @@ class CustomTokenObtainPairView(TokenObtainPairView):
     # 커스텀 Serializer를 연결합니다.
     serializer_class = CustomTokenObtainPairSerializer
     permission_classes = [permissions.AllowAny]
-
-# ----------------------------------------------------------------------
-# 4. 임시 2025.10.27 View (삭제 필요...)
-# ----------------------------------------------------------------------
-class OasGroupListAPIView(generics.ListAPIView):
-    # 어떤 모델 객체를 가져올지 지정합니다 (전체 객체)
-    queryset = OasGroup.objects.all()
-
-    # 가져온 객체를 어떤 Serializer로 변환할지 지정합니다
-    serializer_class = OasGroupSerializer
-
-    # 참고: 만약 특정 조건의 리스트만 보고 싶다면 get_queryset 메서드를 오버라이드합니다.
-    # def get_queryset(self):
-    #     return OasGroup.objects.filter(some_field='value')
 
 
 # ----------------------------------------------------------------------

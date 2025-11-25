@@ -11,12 +11,23 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 import os
+from dotenv import load_dotenv
 from pathlib import Path
 from datetime import timedelta # jwt token life time...
 import pymysql  # 추가
+
+# .env 파일을 사용하는 경우 이 줄을 추가합니다.
+load_dotenv()
+
+# 환경 변수에서 API 키를 읽어옵니다.
+REMOTE_BACKEND_KEY = os.environ.get('EXTERNAL_API_TOKEN')
+
+# 키가 설정되지 않은 경우를 대비해 에러 처리를 할 수도 있습니다.
+if not REMOTE_BACKEND_KEY:
+    # raise Exception("EXTERNAL_API_TOKEN 환경 변수가 설정되지 않았습니다.")
+    pass # 또는 기본값 설정
+
 pymysql.install_as_MySQLdb() # 추가
-
-
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -52,6 +63,10 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'account',
+    # 환경제어기 관련 APP
+    'oas.device',
+    # APP 통합 이벤트 관리
+    'log_events',
 ]
 
 MIDDLEWARE = [

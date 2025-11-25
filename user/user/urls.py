@@ -35,4 +35,7 @@ urlpatterns = [
     # Access 토큰을 갱신하는 엔드포인트
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 
+    # ⭐️ 새로 추가된 oas.auth.device 앱의 URL을 연결
+    path('oas/v1/device/', include('oas.device.urls')),
+
 ]
