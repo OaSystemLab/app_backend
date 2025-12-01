@@ -100,14 +100,14 @@ class UserInfo(AbstractBaseUser, PermissionsMixin):
     # email을 고유하게 설정하고, USERNAME_FIELD로 지정합니다.
     email = models.EmailField(
         verbose_name='이메일',
-        max_length=100,
+        max_length=254, # 표준 권장 254 RFC 5321 Section 4.5.3.1
         unique=True,
         null=False
     )
     # 👇 이메일 변경 요청 시 새로운 이메일을 임시로 저장할 필드 추가
     new_email = models.EmailField(
         verbose_name='새 이메일 (변경 대기 중)',
-        max_length=100,
+        max_length=254, # 표준 권장 254 RFC 5321 Section 4.5.3.1
         unique=False,
         null=True,     # 이메일 변경 요청이 없을 때는 None
         blank=True
@@ -216,6 +216,75 @@ class UserInfo(AbstractBaseUser, PermissionsMixin):
     def email_user(self, subject, message, from_email=None, **kwargs):
         """사용자에게 이메일을 보냅니다."""
         send_mail(subject, message, from_email, [self.email], **kwargs)
+
+
+### ⚠️ 현재 수정 중...
+class UserGroup(models.Model):
+    """
+    가족 그룹 내 사용자 등록 및 관계 정보를 관리하는 모델
+    """
+
+    # 1. family_group_id: 가족 그룹 ID
+    family_group_id = models.CharField(
+        max_length=50,
+        verbose_name="가족 그룹 ID",
+        help_text="가족 그룹을 식별하는 고유 ID (예: fam_1)"
+    )
+
+    # 2. master_id: family_level 마스터 ID
+    master_id = models.CharField(
+        max_length=50,
+        verbose_name="Family Level 마스터",
+        help_text="그룹 내 마스터 권한을 가진 사용자 ID(User 모델 참조)"
+    )
+
+    # 3. user_id: user_info id (실제 사용자 본인 ID)
+    user_id = models.BigIntegerField(
+        verbose_name="사용자 ID",
+        help_text="그룹에 소속된 사용자 (User 모델 참조)"
+    )
+
+    # 4. email: 이메일 (user 기준)
+    email = models.CharField(
+        max_length=254, # 이메일 최대 길이 (표준 권장 RFC 5321 Section 4.5.3.1)
+        verbose_name="이메일",
+        help_text="사용자 기준 이메일"
+    )
+
+    # 5. nick_name: 닉 네임 (user 기준)
+    nick_name = models.CharField(
+        max_length=50,
+        verbose_name="닉네임",
+        help_text="사용자 기준 닉네임"
+    )
+
+    # 6. family_level: 가족 레벨 (master, user)
+    FAMILY_LEVEL_CHOICES = [
+        ('master', '마스터'),
+        ('user', '일반 사용자'),
+    ]
+    family_level = models.CharField(
+        max_length=10,
+        choices=FAMILY_LEVEL_CHOICES,
+        default='user',
+        verbose_name="가족 레벨",
+        help_text="그룹 내 권한 레벨 (master 또는 user)"
+    )
+
+    # 7. create_date: 생성 일자
+    create_date = models.DateTimeField(
+        default=timezone.now,
+        verbose_name="생성 일자"
+    )
+
+    class Meta:
+        verbose_name = "가족 그룹"
+        verbose_name_plural = "가족 그룹"
+        db_table = 'user_group' # 데이터베이스 테이블명을 user_info로 설정
+
+    def __str__(self):
+        return f"{self.family_group_id}"
+
 
 
 

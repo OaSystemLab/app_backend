@@ -55,8 +55,7 @@ class OasInfo(models.Model):
     )
     deviceId = models.CharField(
         verbose_name='환경 제어기 Device ID',
-        max_length=20,
-        unique=True
+        max_length=50,
     )
     room = models.CharField(
         verbose_name='방 이름',
@@ -97,7 +96,7 @@ class OasInfo(models.Model):
         verbose_name_plural = '환경제어기 정보'
         db_table = 'oas_info'
         # 지역 코드, 동, 호, site 조합은 고유해야 할 가능성이 높아 unique_together로 설정합니다.
-        unique_together = (('site', 'deviceId'),)
+        # unique_together = (('site', 'deviceId'),)
 
     def __str__(self):
         return f'{self.site}'

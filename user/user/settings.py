@@ -20,7 +20,7 @@ import pymysql  # 추가
 load_dotenv()
 
 # 환경 변수에서 API 키를 읽어옵니다.
-REMOTE_BACKEND_KEY = os.environ.get('EXTERNAL_API_TOKEN')
+REMOTE_BACKEND_KEY = os.environ.get('REMOTE_BACKEND_KEY')
 
 # 키가 설정되지 않은 경우를 대비해 에러 처리를 할 수도 있습니다.
 if not REMOTE_BACKEND_KEY:

@@ -4,8 +4,8 @@
   "settings": {
     "width": 4000,
     "height": 4000,
-    "scrollTop": -1688.3333,
-    "scrollLeft": -1071.592,
+    "scrollTop": -1743.3333,
+    "scrollLeft": -1100.592,
     "zoomLevel": 1,
     "show": 511,
     "database": 4,
@@ -475,20 +475,20 @@
       "ii5ZRcSwrbH1Tqh9H89aP": {
         "id": "ii5ZRcSwrbH1Tqh9H89aP",
         "tableId": "jI2S7dUZUO876nTAKYXv8",
-        "name": "oas_infoid",
+        "name": "oas_info_id",
         "comment": "oas_info_{ID}",
         "dataType": "VARCHAR(50)",
         "default": "",
         "options": 8,
         "ui": {
           "keys": 0,
-          "widthName": 60,
+          "widthName": 61,
           "widthComment": 70,
           "widthDataType": 75,
           "widthDefault": 60
         },
         "meta": {
-          "updateAt": 1758690648044,
+          "updateAt": 1764555369039,
           "createAt": 1758690598831
         }
       },
@@ -637,7 +637,7 @@
         "tableId": "lrC_B63AfwyfSp-NVXVXH",
         "name": "device_id",
         "comment": "환경제어기 Device  ID",
-        "dataType": "VARCHAR(20)",
+        "dataType": "VARCHAR(50)",
         "default": "",
         "options": 8,
         "ui": {
@@ -648,7 +648,7 @@
           "widthDefault": 60
         },
         "meta": {
-          "updateAt": 1758691748185,
+          "updateAt": 1764208910940,
           "createAt": 1758691719828
         }
       },
