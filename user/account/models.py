@@ -156,7 +156,18 @@ class UserInfo(AbstractBaseUser, PermissionsMixin):
         blank=True
     )
 
-    # [AbstractBaseUser 기본 필드 오버라이딩 및 추가 권한]
+    # 👇 [추가: 인증 실패 추적 및 계정 잠금 관련 필드]
+    decryption_fail_count = models.IntegerField(
+        verbose_name='복호화 연속 실패 횟수',
+        default=0,
+        null=False,
+    )
+
+    last_fail_time = models.DateTimeField(
+        verbose_name='마지막 복호화 실패 시간',
+        null=True,
+        blank=True,
+    )
 
     # 계정이 활성 상태인지 여부 (계정 잠금 기능) - 이미지에 따라 default=True
     is_active = models.BooleanField(

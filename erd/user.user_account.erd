@@ -4,8 +4,8 @@
   "settings": {
     "width": 4000,
     "height": 4000,
-    "scrollTop": -1743.3333,
-    "scrollLeft": -1100.592,
+    "scrollTop": -1552.3333,
+    "scrollLeft": -1915.592,
     "zoomLevel": 1,
     "show": 511,
     "database": 4,
@@ -69,7 +69,9 @@
           "Frb4YOSJ9nU8AfQ0jCqMj",
           "vS9f_Bw3__dEHLtqxsKZB",
           "PAnUkH-_0NbbEYN0SkGGL",
-          "rtMsM_WdepgV8o4_i9j4E"
+          "rtMsM_WdepgV8o4_i9j4E",
+          "7iBQ-HuUWiSJXY8s0ckjd",
+          "XqQyV1wGKC1VhhLMvSOBE"
         ],
         "seqColumnIds": [
           "SlCut1LSez529HtI8Tw_9",
@@ -94,10 +96,12 @@
           "PAnUkH-_0NbbEYN0SkGGL",
           "rtMsM_WdepgV8o4_i9j4E",
           "oL797e3iM_dsgDknG-dVn",
-          "ksuCEHZ3evDYbUkqcaEUN"
+          "ksuCEHZ3evDYbUkqcaEUN",
+          "7iBQ-HuUWiSJXY8s0ckjd",
+          "XqQyV1wGKC1VhhLMvSOBE"
         ],
         "ui": {
-          "x": 1813.75,
+          "x": 1814.75,
           "y": 1815.6389,
           "zIndex": 2,
           "widthName": 60,
@@ -105,7 +109,7 @@
           "color": "#0361F4"
         },
         "meta": {
-          "updateAt": 1762403343045,
+          "updateAt": 1764646953146,
           "createAt": 1758687632697
         }
       },
@@ -1531,6 +1535,46 @@
           "updateAt": 1762389587913,
           "createAt": 1762389553024
         }
+      },
+      "7iBQ-HuUWiSJXY8s0ckjd": {
+        "id": "7iBQ-HuUWiSJXY8s0ckjd",
+        "tableId": "fQP77y4ArwCBH5H-dnzXv",
+        "name": "decryption_fail_count",
+        "comment": "복호화 연속 실패 횟수",
+        "dataType": "INTEGER",
+        "default": "0",
+        "options": 0,
+        "ui": {
+          "keys": 0,
+          "widthName": 115,
+          "widthComment": 120,
+          "widthDataType": 60,
+          "widthDefault": 60
+        },
+        "meta": {
+          "updateAt": 1764646951485,
+          "createAt": 1764646919906
+        }
+      },
+      "XqQyV1wGKC1VhhLMvSOBE": {
+        "id": "XqQyV1wGKC1VhhLMvSOBE",
+        "tableId": "fQP77y4ArwCBH5H-dnzXv",
+        "name": "last_fail_time",
+        "comment": "마지막 복호화 실패 시간",
+        "dataType": "DATE",
+        "default": "",
+        "options": 0,
+        "ui": {
+          "keys": 0,
+          "widthName": 69,
+          "widthComment": 132,
+          "widthDataType": 60,
+          "widthDefault": 60
+        },
+        "meta": {
+          "updateAt": 1764646980763,
+          "createAt": 1764646953146
+        }
       }
     },
     "relationshipEntities": {
@@ -1553,8 +1597,8 @@
           "columnIds": [
             "rpA8Ipnrr0pgGLgPonL7p"
           ],
-          "x": 2347.75,
-          "y": 2035.6389,
+          "x": 2380.75,
+          "y": 2059.6389,
           "direction": 2
         },
         "meta": {

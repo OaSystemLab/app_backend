@@ -7,6 +7,10 @@ from django.utils.translation import gettext_lazy as _
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework.exceptions import AuthenticationFailed
 
+from django.utils import timezone
+from datetime import timedelta
+from django.db import transaction
+
 from ..models import UserInfo
 
 # ----------------------------------------------------------------------
@@ -70,8 +74,9 @@ class UserLoginSerializer(serializers.Serializer):
 
 
 # ----------------------------------------------------------------------
-# 3. JWT 토큰 Serializer (Custom)
+# 3. JWT 토큰 Serializer (Custom) -- login
 # ----------------------------------------------------------------------
+UNLOCK_DELAY = timedelta(minutes=15)
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     @classmethod
     def get_token(cls, user):
@@ -88,19 +93,60 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         return token
 
     def validate(self, attrs):
+        # 1. 🔍 이메일을 이용해 사용자 객체를 먼저 가져옵니다.
+        #    사용자 객체를 가져오지 못하면 기본 인증 실패로 처리합니다.
+        email = attrs.get(UserInfo.USERNAME_FIELD)
         try:
-            data = super().validate(attrs)
-        except AuthenticationFailed:
+            user = UserInfo.objects.get(**{UserInfo.USERNAME_FIELD: email})
+        except UserInfo.DoesNotExist:
+            # 존재하지 않는 이메일일 경우, 보안을 위해 일반 인증 실패 메시지 반환
             raise serializers.ValidationError({
                 "detail": "제공된 인증 정보가 유효하지 않습니다. 이메일 또는 비밀번호를 확인해 주세요."
             })
 
-        data['user_id'] = self.user.id
-        data['nick_name'] = self.user.nick_name
+        # --- 🛡️ 2. is_active 확인 및 잠금 해제/차단 로직 ---
+        if not user.is_active:
+            # 계정이 잠겨 있는 경우 (is_active=False)
+            last_fail_time = user.last_fail_time
+            current_time = timezone.now()
+
+            if last_fail_time and (current_time >= last_fail_time + UNLOCK_DELAY):
+                # 15분 경과: 계정 잠금 해제 및 카운트 초기화
+                with transaction.atomic():
+                    user.is_active = True
+                    user.decryption_fail_count = 0
+                    user.last_fail_time = None
+                    user.save(update_fields=['is_active', 'decryption_fail_count', 'last_fail_time'])
+                    # 계정 잠금 해제 후, 이제 비밀번호 인증 단계로 넘어갑니다.
+            else:
+                # 15분 미경과: 잠금 상태 유지 및 에러 발생 -> 토큰 발급 차단
+                remaining_time = (last_fail_time + UNLOCK_DELAY) - current_time if last_fail_time else UNLOCK_DELAY
+
+                # 명확한 계정 잠금 메시지 반환
+                raise serializers.ValidationError({
+                    "detail": f"해당 계정은 잠겨 있습니다. 잠금 해제까지 약 {int(remaining_time.total_seconds() // 60) + 1}분 남았습니다."
+                })
+        # --- 🛡️ 3. 잠금 해제 로직 종료 ---
+
+        # 4. 🔑 비밀번호 검증 및 토큰 발급 준비 (is_active가 True로 확인/전환된 상태)
+        #    이제 super().validate가 실행되어 비밀번호가 맞는지 확인합니다.
+        try:
+            # super().validate가 성공적으로 실행되면 self.user에 user 객체가 할당됩니다.
+            data = super().validate(attrs)
+        except AuthenticationFailed:
+            # 비밀번호가 틀린 경우에만 이곳으로 옵니다.
+            raise serializers.ValidationError({
+                "detail": "제공된 인증 정보가 유효하지 않습니다. 이메일 또는 비밀번호를 확인해 주세요."
+            })
+
+
+        user = self.user
+        data['user_id'] = user.id
+        data['nick_name'] = user.nick_name
         data['oas_auth'] = False
 
-        if hasattr(self.user, 'email_info'):
-             data['email_auth'] = self.user.email_info.email_auth
+        if hasattr(user, 'email_info'):
+             data['email_auth'] = user.email_info.email_auth
         else:
              data['email_auth'] = False
 
