@@ -10,12 +10,18 @@ class OasGroup(models.Model):
         verbose_name='환경제어기 그룹 ID',
         max_length=50,
     )
-    oas_info_id = models.CharField(
-        verbose_name='환경제어기 정보 ID',
-        max_length=50
+    # oas_info_id = models.CharField(
+    #     verbose_name='환경제어기 정보 ID',
+    #     max_length=50
+    # )
+    oas_info = models.ForeignKey(
+        'OasInfo',  # 참조할 모델 이름
+        verbose_name='환경제어기 정보',
+        on_delete=models.PROTECT, # 참조된 OasInfo 객체 삭제 시 이 OasGroup 객체는 보호됨
     )
+
     oas_name = models.CharField(
-        verbose_name='사용자 정의 환경제어기 이름',
+        verbose_name='환경제어기 이름',
         max_length=100,
         null=True,
         blank=True

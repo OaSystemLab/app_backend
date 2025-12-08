@@ -12,7 +12,7 @@ class OasGroupAdmin(admin.ModelAdmin):
 
     # 목록 페이지에 표시할 필드
     list_display = (
-        'id',
+        #'id',
         'oas_group_id',
         'oas_info_id',
         'oas_name',
@@ -33,8 +33,8 @@ class OasGroupAdmin(admin.ModelAdmin):
 
     # 객체 상세 페이지에서 수정할 수 없는 필드 (ID는 변경 불가)
     readonly_fields = (
-        'id',
-        'created_at'
+        #'id',
+        'created_at',
     )
 
 

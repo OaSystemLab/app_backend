@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from .models import UserInfo, UserEmail, EmailLog
+from .models import UserInfo, UserEmail, EmailLog, UserGroup
 
 # 1. UserEmail 모델을 UserInfo 관리자 페이지에 인라인으로 표시하기 위한 클래스
 class UserEmailInline(admin.StackedInline):
@@ -74,8 +74,83 @@ class UserInfoAdmin(BaseUserAdmin):
             return [] # 사용자 추가 페이지일 때는 인라인을 반환하지 않음
         return [UserEmailInline] # 사용자 편집 페이지일 때는 인라인을 반환
 
+@admin.register(UserGroup)
+class UserGroupAdmin(admin.ModelAdmin):
+    """
+    UserGroup 모델의 관리자 페이지 설정입니다.
+    """
 
+    # 1. 목록에 표시할 필드 (List Display)
+    # 관리자 목록 페이지에서 가장 중요한 정보를 한눈에 볼 수 있도록 설정합니다.
+    list_display = (
+        'family_group_id',
+        'user',
+        'get_nick_name',    # 사용자 Nick Name
+        'get_family_level',
+        # 'master_id',
+        'create_date'
+    )
 
+    # 2. 검색 필드 (Search Fields)
+    # 목록 상단에 검색창을 만들어 해당 필드로 검색할 수 있도록 합니다.
+    search_fields = (
+        'family_group_id',  # 그룹 ID로 검색
+        'user',             # 사용자 email
+        'get_nick_name',    # 사용자 Nick Name
+        'get_family_level',        # 닉네임으로 검색
+        # 'master_id',        # 마스터 ID로 검색
+    )
+
+    # # 3. 필터링 필드 (List Filter)
+    # # 목록 오른쪽에 필터 사이드바를 만들어 필터링 할 수 있도록 합니다.
+    # list_filter = (
+    #     'family_level', # 마스터/일반 사용자로 필터링
+    #     'create_date',  # 생성 일자로 필터링
+    # )
+
+    # 4. 읽기 전용 필드 (Readonly Fields)
+    # 사용자가 생성 일자를 변경하지 못하도록 읽기 전용으로 설정합니다.
+    readonly_fields = (
+        'create_date',
+        'get_nick_name',      # 👈 fieldsets에서 사용하려면 반드시 필요
+        'get_family_level',
+    )
+
+    # 1. 닉네임(nick_name)을 가져오는 메서드
+    def get_nick_name(self, obj):
+        """UserGroup에 연결된 UserInfo 객체의 nick_name을 반환합니다."""
+        # obj는 현재 UserGroup 인스턴스입니다.
+        # obj.user를 통해 연결된 UserInfo 객체에 접근하고 nick_name 필드를 가져옵니다.
+        if obj.user:
+            return obj.user.nick_name
+        return "N/A"
+    # 관리자 페이지 목록에 표시될 컬럼 헤더 이름 설정
+    get_nick_name.short_description = '닉네임'
+    get_nick_name.admin_order_field = 'user__nick_name' # 닉네임으로 정렬 가능하도록 설정 (UserInfo 모델에 nick_name 필드가 있을 경우)
+    # 2. 가족 레벨(family_level)을 가져오는 메서드
+    def get_family_level(self, obj):
+        """UserGroup에 연결된 UserInfo 객체의 family_level을 반환합니다."""
+        if obj.user:
+            # 👈 UserInfo 객체를 통해 family_level에 접근합니다.
+            return obj.user.family_level
+        return "N/A"
+
+    get_family_level.short_description = '가족 레벨'
+    get_family_level.admin_order_field = 'family_level' # 이 필드는 UserGroup에 있으므로 바로 정렬 가능
+
+    # 5. 레코드 상세 화면의 필드 순서 및 그룹화 (Fieldsets)
+    # 상세 보기/수정 페이지에서 필드를 그룹별로 정리하여 보여줍니다.
+    fieldsets = (
+        ('그룹 정보', {
+            'fields': ('family_group_id',),
+        }),
+        ('사용자 정보', {
+            'fields': ('user', 'get_nick_name', 'get_family_level'),
+        }),
+        ('시간', {
+            'fields': ('create_date',),
+        }),
+    )
 
 @admin.register(EmailLog)
 class EmailLogAdmin(admin.ModelAdmin):

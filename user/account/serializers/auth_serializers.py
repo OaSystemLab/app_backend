@@ -83,12 +83,15 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         token = super().get_token(user)
         token['user_id'] = user.id
         token['nick_name'] = user.nick_name
-        token['oas_auth'] = False
+        #token['oas_auth'] = False
 
         if hasattr(user, 'email_info'):
              token['email_auth'] = user.email_info.email_auth
         else:
              token['email_auth'] = False
+
+        token['family_group_id'] = user.family_group_id
+        token['family_level'] = user.family_level
 
         return token
 
@@ -143,11 +146,13 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         user = self.user
         data['user_id'] = user.id
         data['nick_name'] = user.nick_name
-        data['oas_auth'] = False
+        #data['oas_auth'] = False
 
         if hasattr(user, 'email_info'):
              data['email_auth'] = user.email_info.email_auth
         else:
              data['email_auth'] = False
+        data['family_group_id'] = user.family_group_id
+        data['family_level'] = user.family_level
 
         return data

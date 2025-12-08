@@ -243,44 +243,54 @@ class UserGroup(models.Model):
     )
 
     # 2. master_id: family_level 마스터 ID
-    master_id = models.CharField(
-        max_length=50,
-        verbose_name="Family Level 마스터",
-        help_text="그룹 내 마스터 권한을 가진 사용자 ID(User 모델 참조)"
-    )
+    # master_id = models.CharField(
+    #     max_length=50,
+    #     verbose_name="Family Level 마스터",
+    #     help_text="그룹 내 마스터 권한을 가진 사용자 ID(User 모델 참조)"
+    # )
 
     # 3. user_id: user_info id (실제 사용자 본인 ID)
-    user_id = models.BigIntegerField(
+    # user_id = models.BigIntegerField(
+    #     verbose_name="사용자 ID",
+    #     help_text="그룹에 소속된 사용자 (User 모델 참조)",
+    #     unique=True
+    # )
+
+    user = models.OneToOneField(
+        'UserInfo', # 👈 실제 UserInfo 모델 클래스 이름을 사용해야 합니다.
+        on_delete=models.CASCADE, # 👈 UserInfo 삭제 시 UserGroup도 함께 삭제
+        primary_key=True, # 👈 이 필드를 UserGroup의 기본 키(PK)로 사용 (추천)
         verbose_name="사용자 ID",
-        help_text="그룹에 소속된 사용자 (User 모델 참조)"
+        help_text="그룹에 소속된 사용자 (UserInfo 모델과 1:1 연결)"
     )
 
-    # 4. email: 이메일 (user 기준)
-    email = models.CharField(
-        max_length=254, # 이메일 최대 길이 (표준 권장 RFC 5321 Section 4.5.3.1)
-        verbose_name="이메일",
-        help_text="사용자 기준 이메일"
-    )
 
-    # 5. nick_name: 닉 네임 (user 기준)
-    nick_name = models.CharField(
-        max_length=50,
-        verbose_name="닉네임",
-        help_text="사용자 기준 닉네임"
-    )
+    # # 4. email: 이메일 (user 기준)
+    # email = models.CharField(
+    #     max_length=254, # 이메일 최대 길이 (표준 권장 RFC 5321 Section 4.5.3.1)
+    #     verbose_name="이메일",
+    #     help_text="사용자 기준 이메일"
+    # )
 
-    # 6. family_level: 가족 레벨 (master, user)
-    FAMILY_LEVEL_CHOICES = [
-        ('master', '마스터'),
-        ('user', '일반 사용자'),
-    ]
-    family_level = models.CharField(
-        max_length=10,
-        choices=FAMILY_LEVEL_CHOICES,
-        default='user',
-        verbose_name="가족 레벨",
-        help_text="그룹 내 권한 레벨 (master 또는 user)"
-    )
+    # # 5. nick_name: 닉 네임 (user 기준)
+    # nick_name = models.CharField(
+    #     max_length=50,
+    #     verbose_name="닉네임",
+    #     help_text="사용자 기준 닉네임"
+    # )
+
+    # # 6. family_level: 가족 레벨 (master, user)
+    # FAMILY_LEVEL_CHOICES = [
+    #     ('master', '마스터'),
+    #     ('user', '일반 사용자'),
+    # ]
+    # family_level = models.CharField(
+    #     max_length=10,
+    #     choices=FAMILY_LEVEL_CHOICES,
+    #     default='user',
+    #     verbose_name="가족 레벨",
+    #     help_text="그룹 내 권한 레벨 (master 또는 user)"
+    # )
 
     # 7. create_date: 생성 일자
     create_date = models.DateTimeField(

@@ -3,6 +3,8 @@ from django.utils import timezone
 from ..models import OasGroup, OasInfo
 from log_events.models import ProjectLogEntry # ⭐️ 통합 모델 임포트
 from django.db import IntegrityError, DatabaseError
+from django.db import transaction
+from django.db.models import Count
 from typing import Optional
 
 
@@ -16,6 +18,19 @@ def OasInfoDelete(id : int):
             user=None,
             level='ERROR',
             event_type='OasInfoDelete',
+            message=f"OasInfo 삭제 중 오류 발생 {id}",
+            request_data=f"{e}"
+        )
+def OasGroupDelete(id : int):
+    try:
+        OasGroup.objects.filter(id=id).delete()
+    except Exception as e:
+        print(f"OasInfo 삭제 중 오류 발생: {e}")
+        ProjectLogEntry.objects.create(
+            app_name='oas.device',
+            user=None,
+            level='ERROR',
+            event_type='OasGroupDelete',
             message=f"OasInfo 삭제 중 오류 발생 {id}",
             request_data=f"{e}"
         )
@@ -86,7 +101,7 @@ def OasInfoNewObject(initial_data: dict) -> Optional[int]:
         )
         # 2. 성공적으로 객체가 생성되면, 해당 객체의 고유 ID를 반환합니다.
         # Django가 자동으로 생성한 Primary Key 필드 이름은 'id'입니다.
-        return new_oas_info.id
+        return new_oas_info
 
     # 데이터베이스 제약 조건 위반 (예: deviceId unique_together 위반 등)
     except (IntegrityError, DatabaseError) as e:
@@ -166,3 +181,122 @@ def OasGroupCreateObject(group_id : str, info_id : str) -> Optional[int]:
             request_data=f"{e}"
         )
         return None
+
+class OasUpdateProcess:
+
+    @classmethod
+    @transaction.atomic
+    def DeviceId(cls, user, initial_data):
+        """
+        1. 특정 그룹 ID를 가진 레코드를 필터링하고, 참조하는 deviceId 기준으로 그룹화하여 카운트합니다.
+        이 쿼리는 해당 그룹에 존재하는 deviceId의 개수(num_devices)와 각 deviceId를 반환합니다.
+        """
+        try:
+            # device_counts = OasGroup.objects.filter(
+            #     oas_group_id=user.oas_group_id
+            # ).values(
+            #     'oas_info__deviceId'
+            # ).annotate(
+            #     num_devices=Count('oas_info__deviceId')
+            # )
+            device_counts = OasGroup.objects.filter(
+                oas_group_id=user.oas_group_id
+            ).select_related('oas_info')
+
+            device_count = device_counts.count()
+        except Exception as e:
+            # 데이터베이스 연결 오류 또는 기타 예기치 않은 오류 처리
+            print(f"🛑 데이터 처리 중 예외 발생: {e}")
+            ProjectLogEntry.objects.create(
+                app_name='oas.device',
+                user=user,
+                level='ERROR',
+                event_type='OasUpdateProcess.GroupDeviceIdCount',
+                message=f"데이터 처리 중 예외 발생",
+                request_data=f"{e}"
+            )
+            return None
+
+
+
+
+        # ℹ️ count 1 개 이기 때문에 필드 확인시 하나만 틀려도 삭제 후 다시 만든다.
+        if device_count == 1:
+            for oas_group in device_counts:
+
+                # 1차 검증: 위치/ID 필드 일치 확인
+                # site, dong, ho, oas_id 필드가 모두 일치하는지 확인
+                if not (
+                    oas_group.oas_info.site == initial_data['site'] and
+                    oas_group.oas_info.dong == initial_data['dong'] and
+                    oas_group.oas_info.ho == initial_data['ho'] and
+                    oas_group.oas_info.oas_id == initial_data['id'] and
+                    oas_group.oas_info.deviceId == initial_data['deviceId']
+                ):
+                    OasInfoDelete(oas_group.oas_info.id)
+                    oas_info_id = OasInfoNewObject(initial_data)
+                    oas_group.oas_info = oas_info_id
+                    oas_group.save()
+                else :
+
+                    oas_group.oas_info.lock = False
+                    oas_group.oas_info.lock_date = None
+                    oas_group.oas_info.save()
+
+            return device_count
+
+        # ℹ️ 한개 이상이라면 site,dong,ho 검색 후 매칭이 안되면 삭제
+        elif device_count > 1:
+            # 1차 검증 사이트 코드 검증
+            for oas_group in device_counts:
+                # site, dong, ho 필드가 모두 일치하는지 확인
+                if not (
+                    oas_group.oas_info.site == initial_data['site'] and
+                    oas_group.oas_info.dong == initial_data['dong'] and
+                    oas_group.oas_info.ho == initial_data['ho']
+                ):
+                    # site, dong, ho 가 틀리면 OasInfo 삭제 후 OasGroup 삭제함
+                    OasGroupDelete(oas_group.id)
+                    OasInfoDelete(oas_group.oas_info.id)
+
+                elif (
+                    oas_group.oas_info.oas_id == initial_data['id'] and
+                    oas_group.oas_info.deviceId == initial_data['deviceId']
+                ):
+                    oas_group.oas_info.lock = False
+                    oas_group.oas_info.lock_date = None
+                    oas_group.oas_info.save()
+
+            return device_count
+
+        # ℹ️ 한 개도 없다면 새로 만든다.
+        else:
+            oas_info_id = OasInfoNewObject(initial_data)
+            OasGroup.objects.create(
+                oas_group_id=user.oas_group_id,
+                oas_info=oas_info_id,
+                # oas_name 등 다른 필수 필드가 있다면 여기에 추가해야 함
+            )
+            return 0
+    @classmethod
+    @transaction.atomic
+    def GroupID(cls, user, change_id: str):
+        try:
+            OasGroup.objects.filter(
+                # 필터링: old_group_id와 일치하는 모든 레코드를 선택
+                oas_group_id=user.oas_group_id
+            ).update(
+                # 업데이트: oas_group_id 필드의 값을 new_group_id로 변경
+                oas_group_id=change_id
+            )
+        except Exception as e:
+            # 데이터베이스 연결 오류 또는 기타 예기치 않은 오류 처리
+            print(f"🛑 데이터 처리 중 예외 발생: {e}")
+            ProjectLogEntry.objects.create(
+                app_name='oas.device',
+                user=user,
+                level='ERROR',
+                event_type='OasUpdateProcess.GroupID',
+                message=f"데이터 처리 중 예외 발생",
+                request_data=f"{e}"
+            )

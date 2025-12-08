@@ -12,7 +12,10 @@ from django.utils import timezone
 from django.db import IntegrityError, DatabaseError
 from typing import Optional # 반환 타입 힌트를 위해 Optional 임포트
 
+from account.utils.usergroup_manager import UserGroupManager
+
 from .utils.oas_manager import OasInfoSearchDeviceIdLock, OasInfoNewObject, OasGroupCreateObject, OasInfoDelete
+from .utils.oas_setup_service import OasSetupService
 
 # ----------------------------------------------------------------------
 # 1. OasGroup Serializer (환경 제어기 그룹 정보)
@@ -62,16 +65,18 @@ class AuthRequestSerializer(serializers.Serializer):
     # 'oas_id' 모델 필드와 일치시키기 위해 'oas_id'로 변환될 수 있도록 'source' 설정도 고려할 수 있지만,
     # 여기서는 받은 데이터 그대로 'id'를 사용합니다.
     id = serializers.CharField(max_length=2, help_text="환경 제어기 ID")
-    deviceId = serializers.CharField(max_length=20, help_text="환경 제어기 Device ID")
+    deviceId = serializers.CharField(max_length=100, help_text="환경 제어기 Device ID")
 
     # 요청 받은 create_date 문자열을 처리합니다.
     # 사용자가 제시한 'YYYY.MM.DD.HH:MM' 형식에 맞추어 format을 지정합니다.
     # Timezone 정보가 없는 순수 DateTimeField로 처리합니다.
-    create_date = serializers.DateTimeField(
-        format="%Y.%m.%d.%H:%M",
-        input_formats=["%Y.%m.%d.%H:%M"],
-        help_text="요청 생성 날짜 및 시간 (예: 2025.11.24.15:27)"
-    )
+    # create_date = serializers.DateTimeField(
+    #     format="%Y.%m.%d.%H:%M",
+    #     input_formats=["%Y.%m.%d.%H:%M"],
+    #     help_text="요청 생성 날짜 및 시간 (예: 2025.11.24.15:27)",
+    #     null=True,
+    #     blank=True,
+    # )
 
     # 현재 검증 중인 'id' 필드의 값은 'data' 변수에 있습니다.
     def validate_id(self, data):
@@ -79,9 +84,7 @@ class AuthRequestSerializer(serializers.Serializer):
         user = self.context['request'].user
         oas_group_id = None
 
-        print("user : ", user)
-
-        # ☑️ 예외. UserEmail 의 내용이 없는 경우 (무조건 있어야 하는 곳인데 없으면 문제가 생기기 때문에 처리 함.)
+        # ✅ 체크. UserEmail 의 내용이 없는 경우 (무조건 있어야 하는 곳인데 없으면 문제가 생기기 때문에 처리 함.)
         if user.email_info is None :
             ProjectLogEntry.objects.create(
                 app_name='oas.device',
@@ -96,23 +99,24 @@ class AuthRequestSerializer(serializers.Serializer):
         if user.email_info.email_auth is False :
             raise ValidationError({"detail": "이메일 인증을 하지 않은 상태 입니다. 인증 후 다시 해주세요."})
 
+
         # ⭐조건. oas_group_id 있는 경우와 없는 경우 처리
-        if user.oas_group_id is None :
-            # 1. deviceId 전부 Lock 처리
-            if not OasInfoSearchDeviceIdLock(self.initial_data['deviceId']) :
+        if user.oas_group_id is None :  # 없으면
+            try:
+                oas_group_id = OasSetupService.setup_new_group(user, self.initial_data)
+            except Exception as e:
+                # 서비스에서 발생한 오류를 받아서 ValidationError로 변환
+                print(f"❌ OAS 그룹 설정 서비스 오류 발생: {e}")
                 raise ValidationError({"detail": "처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."})
-            # 2. oas_group_id 만들기
-            oas_group_id = "oas_group_" + str(user.id)
-            # 3. oas_info 생성
-            oas_info_id = OasInfoNewObject(self.initial_data)
-            if oas_info_id == None :
+        else :
+            try:
+                oas_group_id = OasSetupService.setup_update_group(user, self.initial_data)
+            except Exception as e:
+                # 서비스에서 발생한 오류를 받아서 ValidationError로 변환
+                print(f"❌ OAS 그룹 설정 서비스 오류 발생: {e}")
                 raise ValidationError({"detail": "처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."})
-            # 4. oas group 생성 ( 오류는 위에서 처리 하기 때문에 안함)
-            oas_group_id = OasGroupCreateObject(oas_group_id, oas_info_id)
-            if oas_group_id == None :
-                # ℹ️ oas_group_id 신규 생성 이기 때문에 oas_info_id 도 새로 만들진다. 그래서 oas_info_id 삭제 필요
-                OasInfoDelete(oas_info_id)
-                raise ValidationError({"detail": "처리 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."})
+
+
         return data
 
 

@@ -68,40 +68,35 @@ class AuthAPIView(APIView):
     def post(self, request, *args, **kwargs):
         user = request.user
 
-        # 1. 암호화된 데이터 추출 및 복호화 시도
+        # 1. 기본 데이터 검증
         encrypted_data = request.data.get('data')
         if not encrypted_data:
             return Response(
                 {"detail": "'data' 필드가 누락되었습니다."},
                 status=status.HTTP_400_BAD_REQUEST
         )
-
+        # 2. 복호화
         decrypted_json = decrypt_qr_data_cryptography(encrypted_data, request.user)
-        # if decrypted_json is None:
-        #     return Response(
-        #         {"detail": "데이터가 유효하지 않습니다."},
-        #         status=status.HTTP_400_BAD_REQUEST # 또는 HTTP_401_UNAUTHORIZED
-        #     )
 
         if decrypted_json is None:
 
             # --- ⭐️ 계정 잠금 로직 시작 ⭐️ ---
-            # 1. 실패 횟수 증가
+            # 2.1. 실패 횟수 증가
             user.decryption_fail_count += 1
             user.last_fail_time = timezone.now()
 
-            # 2. 4회 이상 실패 시 계정 비활성화
+            # 2.2. 4회 이상 실패 시 계정 비활성화
             if user.decryption_fail_count >= MAX_FAIL_ATTEMPTS:
                 user.is_active = False # is_active 필드를 False로 설정 (계정 잠금)
                 user.save(update_fields=['decryption_fail_count', 'last_fail_time', 'is_active'])
 
                 # 계정 잠금 오류 응답
                 return Response(
-                    {"detail": "복호화 연속 실패로 계정이 비활성화되었습니다. 15분 뒤에 다시 로그인 해주세요."},
+                    {"detail": "데이터 위변조가 감지 되었습니다. 15분 뒤에 다시 로그인 해주세요."},
                     status=status.HTTP_401_UNAUTHORIZED
                 )
 
-            # 3. 모델 저장 및 실패 응답
+            # 2.3. 모델 저장 및 실패 응답
             user.save(update_fields=['decryption_fail_count', 'last_fail_time'])
 
             return Response(
@@ -111,23 +106,20 @@ class AuthAPIView(APIView):
             )
             # --- ⭐️ 계정 잠금 로직 종료 ⭐️ ---
 
-        # --- ⭐️ 성공 시 복호화 실패 카운트 초기화 ⭐️ ---
-        # 복호화에 성공했다면, 연속 실패 카운트를 0으로 초기화
+
+        # 3. 복호화에 성공했다면, 연속 실패 카운트를 0으로 초기화
         if user.decryption_fail_count > 0:
             user.decryption_fail_count = 0
             user.last_fail_time = None
             user.save(update_fields=['decryption_fail_count', 'last_fail_time'])
-        # --- ⭐️ 초기화 종료 ⭐️ ---
 
-
-        # 2. QRCODE 시간 유효성 검사 로직
+        # 4. QRCODE 시간 유효성 검사 로직
         time_str = decrypted_json.get('time')
-
         received_time = datetime.strptime(time_str, '%Y.%m.%d.%H.%M')
         current_time = timezone.now()
-        # TODO. ⚠️10분 으로 변경 필요 (개발 중 이여서 100분으로 사용 중)
-        QR_CODE_EXPIRY = timedelta(minutes=1)
-
+        # TODO. ⚠️10분 으로 변경 필요
+        QR_CODE_EXPIRY = timedelta(minutes=10)
+        # TODO. 테스트 작업 으로 인해 주석 처리 함 2025.12.03 완료 이후 주석 삭제 필요.
         if current_time >= received_time + QR_CODE_EXPIRY:
             # current_time (Aware) >= received_time (Aware) + timedelta
             # 두 Aware 객체 간의 비교이므로 TypeError가 발생하지 않아야 합니다.
@@ -137,7 +129,7 @@ class AuthAPIView(APIView):
             )
 
 
-        # 3. Remote Backend 검증 요청
+        # 5. Remote Backend 검증 요청
         print("DEBUG decrypted_json : ", decrypted_json)
         device_check = {
             "dev_id" : decrypted_json['site'] +
@@ -154,30 +146,32 @@ class AuthAPIView(APIView):
                 {"detail": "등록 되지 않은 환경제어기가 입니다. 등록 후 사용 해주세요."},
                 status=status.HTTP_404_NOT_FOUND
             )
-        # 4. 등록
+        # 6. 등록
         serializer = AuthRequestSerializer(data=decrypted_json, context={'request': request})
 
         print("api_response_data : " , api_response_data)
 
-
-        # 4. Serializer를 통한 데이터 유효성 검사
         if serializer.is_valid():
 
-            # 임시 응답 (성공)
             return Response(
-                {"message": "인증 요청 데이터가 유효하며 처리 대기 중입니다.",
-                 "data": serializer.validated_data},
+                {
+                    "detail": "인증 요청 데이터가 처리가 완료 되었습니다.",
+                    "site" : decrypted_json['site'],
+                    "site_name" : api_response_data.get('site_name'),
+                    "dong" : decrypted_json['dong'],
+                    "ho" : decrypted_json['ho'],
+                    "id" : decrypted_json['id']
+                },
                 status=status.HTTP_200_OK
             )
+        else :
+            # 3. 오류 내용 확인 (가장 중요)
+            print("❌ Serializer Validation Failed!")
+            print("Serializer Errors:", serializer.errors)
 
+            # 4. 오류 응답 반환
+            return Response(
+                serializer.errors['id'],
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-        return Response(
-            {
-                "message": "인증 요청 데이터가 처리가 완료 되었습니다.",
-                "site" : decrypted_json['site'],
-                "dong" : decrypted_json['dong'],
-                "ho" : decrypted_json['ho'],
-                "id" : decrypted_json['id']
-            },
-            status=status.HTTP_200_OK
-        )
