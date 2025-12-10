@@ -37,5 +37,7 @@ urlpatterns = [
 
     # ⭐️ 새로 추가된 oas.auth.device 앱의 URL을 연결
     path('oas/v1/device/', include('oas.device.urls')),
+    # Approval 앱의 URL을 /api/v1/approvals/ 경로로 연결
+    path('api/v1/approvals/', include('approval.urls')),
 
 ]

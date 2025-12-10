@@ -67,6 +67,7 @@ INSTALLED_APPS = [
     'oas.device',
     # APP 통합 이벤트 관리
     'log_events',
+    'approval',
 ]
 
 MIDDLEWARE = [

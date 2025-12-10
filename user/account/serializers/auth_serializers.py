@@ -12,6 +12,8 @@ from datetime import timedelta
 from django.db import transaction
 
 from ..models import UserInfo
+from approval.models import ApprovalRequest, ApprovalStatus
+from approval.serializers import ApprovalRequestSerializer
 
 # ----------------------------------------------------------------------
 # 1. 사용자 등록 Serializer
@@ -76,6 +78,10 @@ class UserLoginSerializer(serializers.Serializer):
 # ----------------------------------------------------------------------
 # 3. JWT 토큰 Serializer (Custom) -- login
 # ----------------------------------------------------------------------
+# {
+#     "email" : "hth@oasiss.co.kr",
+#     "password" : "ghkdxoghks!@"
+# }
 UNLOCK_DELAY = timedelta(minutes=15)
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     @classmethod
@@ -92,6 +98,30 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
         token['family_group_id'] = user.family_group_id
         token['family_level'] = user.family_level
+
+        # approval(승인 요청)
+        # 1. PENDING 요청 목록 조회
+        pending_requests = ApprovalRequest.objects.filter(
+            approver=user,
+            status=ApprovalStatus.PENDING
+        ).order_by('requested_at')
+
+        # 2. 요청 존재 여부 확인
+        has_pending_requests = pending_requests.exists()
+
+        # 3. 요청 목록 직렬화
+        # 토큰 페이로드 크기를 줄이기 위해, 필요하다면 경량 Serializer를 정의하여 사용하세요.
+        # 여기서는 ApprovalRequestSerializer를 사용한다고 가정합니다.
+
+        # list를 넣기 때문에 many=True로 설정
+        serializer = ApprovalRequestSerializer(pending_requests, many=True)
+
+        # 4. 토큰 페이로드에 추가
+        # 'family_auth_approval' 대신 의미가 더 명확한 키를 사용하는 것이 좋습니다.
+        # 예: 'pending_approvals' 또는 'approvals_as_master'
+
+        token['approval_status'] = has_pending_requests
+        token['approval_list'] = serializer.data
 
         return token
 
@@ -154,5 +184,31 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
              data['email_auth'] = False
         data['family_group_id'] = user.family_group_id
         data['family_level'] = user.family_level
+        # approval(승인 요청)
+        # approval(승인 요청)
+        # 1. PENDING 요청 목록 조회
+        pending_requests = ApprovalRequest.objects.filter(
+            approver=user,
+            status=ApprovalStatus.PENDING
+        ).order_by('requested_at')
+
+        # 2. 요청 존재 여부 확인
+        has_pending_requests = pending_requests.exists()
+
+        # 3. 요청 목록 직렬화
+        # 토큰 페이로드 크기를 줄이기 위해, 필요하다면 경량 Serializer를 정의하여 사용하세요.
+        # 여기서는 ApprovalRequestSerializer를 사용한다고 가정합니다.
+
+        # list를 넣기 때문에 many=True로 설정
+        serializer = ApprovalRequestSerializer(pending_requests, many=True)
+
+        # 4. 토큰 페이로드에 추가
+        # 'family_auth_approval' 대신 의미가 더 명확한 키를 사용하는 것이 좋습니다.
+        # 예: 'pending_approvals' 또는 'approvals_as_master'
+
+        data['approval_status'] = has_pending_requests
+        data['approval_list'] = serializer.data
+
+
 
         return data
