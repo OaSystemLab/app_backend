@@ -15,6 +15,13 @@ from .email_serializers import (
     EmailChangeVerifySerializer
 )
 
+from .serializers import (
+    UserInfoListSerializer,
+    UserInfoNicknameUpdateSerializer,
+    MasterTransferSerializer,
+    MemberKickSerializer,
+)
+
 # 외부에서 'from .serializers import X' 로 접근할 수 있도록 노출합니다.
 __all__ = [
     'UserRegistrationSerializer',
@@ -24,4 +31,8 @@ __all__ = [
     'EmailAuthConfirmSerializer',
     'EmailChangeRequestSerializer',
     'EmailChangeVerifySerializer',
+    'UserInfoListSerializer',
+    'UserInfoNicknameUpdateSerializer',
+    'MasterTransferSerializer',
+    'MemberKickSerializer',
 ]

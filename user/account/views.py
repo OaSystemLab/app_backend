@@ -4,11 +4,14 @@ from rest_framework import generics, permissions
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-#from .serializers import UserRegistrationSerializer, UserLoginSerializer, EmailAuthSendSerializer, EmailAuthConfirmSerializer, EmailChangeRequestSerializer, EmailChangeVerifySerializer
+
 from django.contrib.auth import login
 from django.db import transaction
 from django.utils import timezone
+from django.core.exceptions import PermissionDenied, ValidationError
 from datetime import timedelta
+
+from .models import UserGroup, UserInfo
 
 # mail 처리 부분
 from django.core.mail import send_mail
@@ -16,10 +19,11 @@ from django.conf import settings
 
 from rest_framework_simplejwt.views import TokenObtainPairView
 from rest_framework.permissions import IsAuthenticated
-from rest_framework_simplejwt.authentication import JWTAuthentication # settings.py에 설정된 인증 클래스와 일치해야 합니다.
-#from .serializers import CustomTokenObtainPairSerializer
+from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from .tasks import send_auth_email_task # Celery Task import
+
+from .utils.services import GroupService
 
 # **하나의 import 문으로 필요한 모든 Serializer를 가져옵니다.**
 from .serializers import (
@@ -29,7 +33,11 @@ from .serializers import (
     EmailChangeVerifySerializer,
     EmailChangeRequestSerializer,
     CustomTokenObtainPairSerializer,
-    UserLoginSerializer
+    UserLoginSerializer,
+    UserInfoListSerializer,
+    UserInfoNicknameUpdateSerializer,
+    MasterTransferSerializer,
+    MemberKickSerializer,
 )
 
 # ----------------------------------------------------------------------
@@ -325,3 +333,211 @@ class EmailChangeVerifyView(APIView):
             {"detail": "이메일 주소 변경이 성공적으로 완료되었습니다. 새 이메일로 다시 로그인해 주세요."},
             status=status.HTTP_200_OK
         )
+
+# ----------------------------------------------------------------------
+# UserList ViewSet (가족 리스트 가져 오기 )
+# ----------------------------------------------------------------------
+class UserInfoListAPIView(APIView):
+    """
+    현재 인증된 사용자 (UserInfo) 의 가족 그룹(family_group_id) 내용 가져오기
+    URL: /user_list/
+    """
+    # 📌 이 뷰는 로그인된 사용자만 접근 가능하도록 Permission 설정을 추가해야 합니다.
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        # 1. 현재 요청을 보낸 사용자 (UserInfo) 객체 가져오기
+        user = request.user
+
+        # 2. 사용자 객체에서 CharField인 family_group_id 값 가져오기
+        family_group_id = user.family_group_id
+
+        # 3. family_group_id 값이 없는지 확인
+        if not family_group_id:
+            return Response(
+                {"detail": "가족 그룹이 없습니다."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 4. UserGroup 객체 조회 (요청하신 filter() 구조 사용)
+        family_group_qs = UserGroup.objects.filter(family_group_id=family_group_id)
+
+        # 5. 조회된 UserGroup이 없는 경우 처리
+        if not family_group_qs.exists():
+             return Response(
+                {"detail": f"ID '{family_group_id}'에 해당하는 가족 그룹이 존재하지 않습니다."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 6. UserGroup QuerySet을 사용하여 연결된 user_info 객체들 가져오기
+        # 연결된 UserInfo의 Primary Key (ID) 리스트 추출
+        user_info_pks = family_group_qs.values_list('user__pk', flat=True).distinct()
+
+        # UserInfo 모델에서 해당 PK를 가진 모든 객체를 조회
+        user_info_list = UserInfo.objects.filter(pk__in=user_info_pks)
+
+        # 7. 시리얼라이즈 및 응답
+        # 여러 객체를 시리얼라이즈하므로 반드시 many=True 옵션을 사용합니다.
+        serializer = UserInfoListSerializer(user_info_list, many=True)
+
+        # 결과는 JSON 배열 형태로 반환됩니다.
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+# ----------------------------------------------------------------------
+# UserInfo Nick Name Edit....
+# ----------------------------------------------------------------------
+class UserInfoNickNameUpdateAPIView(APIView):
+    """
+    UserInfo Nick Name 수정하는 API.
+    """
+    # 📌 권한 설정: 로그인된 사용자만 접근 허용
+    permission_classes = [IsAuthenticated]
+
+    # {
+    #     "new_nick_name": "거실"
+    # }
+
+    def post(self, request, *args, **kwargs):
+
+        user = request.user
+
+        # 2. 시리얼라이저를 사용하여 요청 데이터 검증
+        serializer = UserInfoNicknameUpdateSerializer(data=request.data)
+
+        # 데이터 유효성 검사 실패 시 400 Bad Request 응답
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        # 3. 검증된 데이터 추출
+        new_nick_name = serializer.validated_data['nick_name']
+
+        # 4. Nick Name 업데이트
+        user.nick_name = new_nick_name
+        user.save()
+
+        # 5. 성공 응답 반환
+        return Response(
+            {
+                "detail": "닉 네임이 성공적으로 수정되었습니다."
+            },
+            status=status.HTTP_200_OK
+        )
+# ----------------------------------------------------------------------
+# 마스터 변경
+# ----------------------------------------------------------------------
+# {
+#     "new_master_user_id" :1234
+# }
+class MasterTransferView(APIView):
+    """가족 그룹 마스터 권한을 다른 사용자에게 이양하는 API 엔드포인트"""
+    permission_classes = [IsAuthenticated] # 로그인 필수
+
+    def post(self, request, *args, **kwargs):
+        serializer = MasterTransferSerializer(data=request.data)
+        # 데이터 유효성 검사 실패 시 자동적으로 HTTP 400 응답 반환
+        serializer.is_valid(raise_exception=True)
+
+        new_master_user_id = serializer.validated_data['new_master_user_id']
+        current_master_user_id = request.user.id # 로그인된 사용자 (현재 마스터)의 ID
+
+        try:
+            success, message = GroupService.transfer_master_authority_with_group_id_change(
+                current_master_user_id=current_master_user_id,
+                new_master_user_id=new_master_user_id
+            )
+
+            if success:
+                return Response(
+                    {"detail": message},
+                    status=status.HTTP_200_OK
+                )
+            else:
+                # 서비스에서 발생한 오류 메시지를 그대로 반환
+                return Response(
+                    {"detail": message},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        except (PermissionDenied, ValidationError) as e:
+            # 서비스 계층이 아닌 뷰 계층에서 예외를 처리해야 할 경우를 대비
+            return Response(
+                {"detail": str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+# ----------------------------------------------------------------------
+# 가족 그룹 탈퇴
+# DELETE
+# ----------------------------------------------------------------------
+class FamilyGroupLeaveView(APIView):
+    """
+    가족 그룹 탈퇴를 처리하는 API 엔드포인트
+    DELETE 요청을 통해 탈퇴를 실행합니다.
+    """
+    permission_classes = [IsAuthenticated] # 로그인 필수
+
+    def delete(self, request, *args, **kwargs):
+        current_user_id = request.user.id # 로그인된 사용자 ID
+
+        success, message = GroupService.leave_family_group(
+            user_id=current_user_id
+        )
+
+        if success:
+            return Response(
+                {"detail": message},
+                status=status.HTTP_200_OK
+            )
+        else:
+            # 403 FORBIDDEN: 마스터 권한으로 인해 탈퇴가 거부됨
+            if "마스터입니다" in message:
+                return Response(
+                    {"detail": message},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            # 400 BAD REQUEST: 기타 유효성 또는 시스템 오류
+            return Response(
+                {"detail": message},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+# ----------------------------------------------------------------------
+# 가족 그룹 추방
+# POST
+# {
+#     "target_user_id": 456
+# }
+# ----------------------------------------------------------------------
+class FamilyGroupKickView(APIView):
+    """
+    마스터가 특정 멤버를 가족 그룹에서 추방하는 API 엔드포인트
+    """
+    permission_classes = [IsAuthenticated] # 로그인 필수
+
+    def post(self, request, *args, **kwargs):
+        serializer = MemberKickSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        target_user_id = serializer.validated_data['target_user_id']
+        master_user_id = request.user.id # 로그인된 사용자 (마스터)의 ID
+
+        success, message = GroupService.kick_member_from_group(
+            master_user_id=master_user_id,
+            target_user_id=target_user_id
+        )
+
+        if success:
+            return Response(
+                {"detail": message},
+                status=status.HTTP_200_OK
+            )
+        else:
+            # 403 FORBIDDEN: 권한 없음 (마스터가 아님)
+            if "권한이 없습니다" in message:
+                return Response(
+                    {"detail": message},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            # 400 BAD REQUEST: 기타 유효성 오류 (그룹 불일치, 자기 자신 추방 시도 등)
+            return Response(
+                {"detail": message},
+                status=status.HTTP_400_BAD_REQUEST
+            )

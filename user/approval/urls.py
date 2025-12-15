@@ -1,6 +1,6 @@
 # app/urls.py
 from django.urls import path
-from .views import ApprovalRequestAPIView, PendingApprovalCheckAPIView, ApprovalRequestUpdateAPIView
+from .views import ApprovalRequestAPIView, PendingApprovalCheckAPIView, ApprovalRequestUpdateAPIView, RequestApprovalListAPIView
 
 urlpatterns = [
     # POST , DELETE
@@ -15,6 +15,7 @@ urlpatterns = [
     # 나에게 들어온 승인 요청 확인 (GET)
     # 예시: GET /api/v1/approvals/check-pending/
     path('check-pending/', PendingApprovalCheckAPIView.as_view(), name='check-pending-approvals'),
-
+    #
+    path('request-list/', RequestApprovalListAPIView.as_view(), name='approval-list'),
 
 ]

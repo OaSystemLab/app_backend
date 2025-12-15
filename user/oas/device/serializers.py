@@ -46,7 +46,18 @@ class OasInfoSerializer(serializers.ModelSerializer):
     """
     class Meta:
         model = OasInfo
-        fields = '__all__' # 모든 필드를 포함하여 모델 변경 사항에 유연하게 대응
+        #fields = '__all__' # 모든 필드를 포함하여 모델 변경 사항에 유연하게 대응
+        fields = (
+            'id',
+            'site',
+            'dong',
+            'ho',
+            'oas_id',
+            'deviceId',
+            'room',
+            'auth',
+            # 필요한 다른 필드도 추가
+        )
         read_only_fields = ['id', 'created_at']
 
 
@@ -120,3 +131,27 @@ class AuthRequestSerializer(serializers.Serializer):
         return data
 
 
+# ----------------------------------------------------------------------
+# 4. oas_info 방이름 변경
+# ----------------------------------------------------------------------
+class OasInfoRoomUpdateSerializer(serializers.Serializer):
+    """
+    OasInfo의 'room' 필드 수정을 위한 요청 데이터 시리얼라이저
+    """
+    # 수정할 OasInfo 객체를 식별하기 위한 ID
+    oas_info_id = serializers.IntegerField(
+        label="OasInfo ID",
+        help_text="수정할 OasInfo 객체의 Primary Key (ID)"
+    )
+    # 새로 설정할 방 이름
+    new_room_name = serializers.CharField(
+        label="새 방 이름",
+        max_length=100, # OasInfo 모델의 room 필드 max_length에 맞춰주세요
+        help_text="OasInfo에 설정할 새로운 방 이름"
+    )
+
+    def validate_new_room_name(self, value):
+        # 방 이름에 대한 추가적인 유효성 검사 로직을 여기에 추가할 수 있습니다.
+        if not value.strip():
+            raise serializers.ValidationError("방 이름은 공백일 수 없습니다.")
+        return value

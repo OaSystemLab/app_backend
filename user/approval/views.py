@@ -6,8 +6,13 @@ from rest_framework.exceptions import NotFound, ValidationError, PermissionDenie
 
 # 모델 및 시리얼라이저 임포트 (경로에 맞게 수정 필요)
 from .models import ApprovalRequest, ApprovalStatus
-from .serializers import ApprovalRequestSerializer
+from .serializers import ApprovalRequestSerializer, LightApprovalRequestSerializer
 from .utils.cooldown import RequestCooldownManager
+
+from django.db import transaction
+# *** 핵심 변경: 유틸리티 함수 임포트 ***
+from .utils.user_management import update_user_info_on_approval
+
 # User 모델 임포트 (settings.AUTH_USER_MODEL을 직접 사용하거나, 실제 모델 경로 임포트)
 from django.conf import settings
 
@@ -39,6 +44,7 @@ class ApprovalRequestAPIView(APIView):
         master_email = request.data.get('master_email')
         request_type = request.data.get('request_type')
 
+        requestee = request.user # 요청자 (현재 로그인된 사용자)
 
         # request.data에 details(JSON) 필드가 있다면 함께 처리합니다.
         details = request.data.get('details', {})
@@ -49,6 +55,16 @@ class ApprovalRequestAPIView(APIView):
                 {'detail': 'master_email과 request_type은 필수 필드입니다.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
+
+        # -----------------------------------------------------------
+        # 🌟 핵심 추가: 요청자(requestee)와 승인자(approver) 동일 이메일 검증 🌟
+        # -----------------------------------------------------------
+        if requestee.email.lower() == master_email.lower():
+            return Response(
+                {'detail': '요청자 본인을 승인자로 지정할 수 없습니다. 다른 마스터 이메일을 입력해주세요.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        # -----------------------------------------------------------
 
         # 2. 요청자 및 승인자 찾기
         requestee = request.user # 현재 로그인된 사용자
@@ -177,6 +193,7 @@ class PendingApprovalCheckAPIView(APIView):
             status=ApprovalStatus.PENDING
         ).order_by('requested_at') # 요청된 순서대로 정렬 (선택 사항)
 
+
         # 2. 요청 존재 여부 확인
         has_pending_requests = pending_requests.exists()
 
@@ -185,7 +202,44 @@ class PendingApprovalCheckAPIView(APIView):
         # list에 필요한 필드만 포함하도록 ApprovalRequestSerializer를 사용하거나,
         # 목록 전용의 경량 Serializer를 사용하는 것이 더 효율적입니다.
         # (여기서는 전체 Serializer를 사용한다고 가정합니다.)
-        serializer = ApprovalRequestSerializer(pending_requests, many=True)
+        serializer = LightApprovalRequestSerializer(pending_requests, many=True)
+
+        # 4. 응답 구성
+        response_data = {
+            'status': has_pending_requests, # 요청 존재 여부
+            'list': serializer.data        # 요청 목록 (없으면 빈 리스트)
+        }
+
+        # 5. 결과 응답
+        return Response(
+            response_data,
+            status=status.HTTP_200_OK
+        )
+
+
+class RequestApprovalListAPIView(APIView):
+    """
+    GET: 사용자(request.user)가 요청한 내용
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        # 1. 로그인된 사용자를 승인자(approver)로 지정하여 PENDING 요청을 모두 조회
+        pending_requests = ApprovalRequest.objects.filter(
+            requestee=request.user,
+            status=ApprovalStatus.PENDING
+        ).order_by('requested_at') # 요청된 순서대로 정렬 (선택 사항)
+
+
+        # 2. 요청 존재 여부 확인
+        has_pending_requests = pending_requests.exists()
+
+        # 3. 요청 목록 직렬화
+        # 다수의 객체를 직렬화하므로 many=True 설정
+        # list에 필요한 필드만 포함하도록 ApprovalRequestSerializer를 사용하거나,
+        # 목록 전용의 경량 Serializer를 사용하는 것이 더 효율적입니다.
+        # (여기서는 전체 Serializer를 사용한다고 가정합니다.)
+        serializer = LightApprovalRequestSerializer(pending_requests, many=True)
 
         # 4. 응답 구성
         response_data = {
@@ -202,7 +256,7 @@ class PendingApprovalCheckAPIView(APIView):
 #     "status": "approved",
 #     "reason": "요청 사항이 규정에 부합함"
 # }
-class ApprovalRequestUpdateAPIView(APIView):
+class ApprovalRequestUpdateAPIView_old(APIView):
     """
     PATCH: 특정 ID의 승인 요청 상태(status)를 승인자(approver)가 업데이트합니다.
     """
@@ -213,11 +267,11 @@ class ApprovalRequestUpdateAPIView(APIView):
         try:
             approval_request = ApprovalRequest.objects.get(pk=request_id)
         except ApprovalRequest.DoesNotExist:
-            raise NotFound({'error': '해당 ID의 승인 요청을 찾을 수 없습니다.'})
+            raise NotFound({'detail': '해당 ID의 승인 요청을 찾을 수 없습니다.'})
 
         # 2. 권한 검증: 현재 로그인된 사용자가 승인자인지 확인
         if approval_request.approver != request.user:
-            raise PermissionDenied({'error': '해당 요청을 처리(승인/거부)할 권한이 없습니다.'})
+            raise PermissionDenied({'detail': '해당 요청을 처리(승인/거부)할 권한이 없습니다.'})
 
         # 3. 데이터 검증: status와 reason만 받도록 제한
         allowed_fields = ['status', 'reason']
@@ -227,13 +281,13 @@ class ApprovalRequestUpdateAPIView(APIView):
         new_status = rdata.get('status')
         if new_status and new_status != approval_request.status:
             if approval_request.status != ApprovalStatus.PENDING:
-                raise ValidationError({'status': f'현재 상태({approval_request.get_status_display()})에서는 상태를 변경할 수 없습니다. (처리 완료됨)'})
+                raise ValidationError({'detail': f'현재 상태({approval_request.get_status_display()})에서는 상태를 변경할 수 없습니다. (처리 완료됨)'})
 
             if new_status not in [ApprovalStatus.APPROVED, ApprovalStatus.REJECTED]:
-                raise ValidationError({'status': '상태는 APPROVED 또는 REJECTED로만 변경할 수 있습니다.'})
+                raise ValidationError({'detail': '상태는 APPROVED 또는 REJECTED로만 변경할 수 있습니다.'})
 
             if new_status == ApprovalStatus.REJECTED and not rdata.get('reason'):
-                raise ValidationError({'reason': '요청을 거부(REJECTED)할 경우 사유(reason)를 반드시 입력해야 합니다.'})
+                raise ValidationError({'detail': '요청을 거부(REJECTED)할 경우 사유(reason)를 반드시 입력해야 합니다.'})
 
         # 5. Serializer를 사용하여 업데이트
         # partial=True 설정으로 일부 필드만 업데이트 허용
@@ -248,8 +302,78 @@ class ApprovalRequestUpdateAPIView(APIView):
 
             return Response(
                 {
-                    'message': f'요청 ID {request_id}가 {updated_request.get_status_display()} 상태로 변경되었습니다.',
-                    'data': ApprovalRequestSerializer(updated_request).data
+                    'detail': f'요청 ID {request_id}가 {updated_request.get_status_display()} 상태로 변경되었습니다.',
+                    #'data': ApprovalRequestSerializer(updated_request).data
                 },
                 status=status.HTTP_200_OK
             )
+
+
+class ApprovalRequestUpdateAPIView(APIView):
+    """
+    PATCH: 특정 ID의 승인 요청 상태(status)를 승인자(approver)가 업데이트합니다.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, request_id, *args, **kwargs):
+        # 1. 요청 객체 가져오기
+        try:
+            approval_request = ApprovalRequest.objects.get(pk=request_id)
+        except ApprovalRequest.DoesNotExist:
+            raise NotFound({'detail': '해당 ID의 승인 요청을 찾을 수 없습니다.'})
+
+        # 2. 권한 검증: 현재 로그인된 사용자가 승인자인지 확인
+        if approval_request.approver != request.user:
+            raise PermissionDenied({'detail': '해당 요청을 처리(승인/거부)할 권한이 없습니다.'})
+
+        # 3. 데이터 검증: status와 reason만 받도록 제한
+        allowed_fields = ['status', 'reason']
+        rdata = {k: v for k, v in request.data.items() if k in allowed_fields}
+
+        # 4. 상태 유효성 검사: PENDING 상태에서만 승인/거부 가능하도록 제한
+        new_status = rdata.get('status')
+        if new_status and new_status != approval_request.status:
+            if approval_request.status != ApprovalStatus.PENDING:
+                raise ValidationError({'detail': f'현재 상태({approval_request.get_status_display()})에서는 상태를 변경할 수 없습니다. (처리 완료됨)'})
+
+            if new_status not in [ApprovalStatus.APPROVED, ApprovalStatus.REJECTED]:
+                raise ValidationError({'detail': '상태는 APPROVED 또는 REJECTED로만 변경할 수 있습니다.'})
+
+            # if new_status == ApprovalStatus.REJECTED and not rdata.get('reason'):
+            #     raise ValidationError({'detail': '요청을 거부(REJECTED)할 경우 사유(reason)를 반드시 입력해야 합니다.'})
+
+        old_status = approval_request.status
+        requestee = approval_request.requestee
+
+        # 4. 트랜잭션 시작
+        with transaction.atomic():
+            serializer = ApprovalRequestSerializer(
+                approval_request,
+                data=rdata,
+                partial=True
+            )
+
+            if serializer.is_valid(raise_exception=True):
+                updated_request = serializer.save()
+
+                message_suffix = ""
+
+                # 5. 상태 변경 감지 및 유틸리티 함수 호출
+                if old_status == ApprovalStatus.PENDING and updated_request.status == ApprovalStatus.APPROVED:
+
+                    # 🌟 분리된 비즈니스 로직 호출 🌟
+                    requestee_level = requestee.family_level
+                    try:
+                        message_suffix = update_user_info_on_approval(updated_request, requestee_level)
+                    except ValidationError as e:
+                        # 유틸리티 함수 내에서 발생한 ValidationError를 여기서 처리 (트랜잭션 롤백 유도)
+                        raise e
+                    # ------------------------------------
+
+                # 6. 응답 반환
+                return Response(
+                    {
+                        'detail': f'요청 ID {request_id}가 {updated_request.get_status_display()} 상태로 변경되었습니다.',
+                    },
+                    status=status.HTTP_200_OK
+                )

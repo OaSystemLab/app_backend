@@ -85,3 +85,24 @@ class ApprovalRequestSerializer(serializers.ModelSerializer):
 
         instance.save()
         return instance
+
+class LightApprovalRequestSerializer(serializers.ModelSerializer):
+    """
+    JWT 토큰 페이로드에 사용하기 위한 ApprovalRequest의 경량 Serializer.
+    (ID, 요청자 이메일, 요청 유형 한글 이름, 요청 시간만 포함)
+    """
+    # 1. 요청자 메일 주소 필드 (ForeignKey 접근)
+    requestee_email = serializers.EmailField(source='requestee.email', read_only=True)
+
+    # 2. 요청 유형 한글 이름 필드 (get_FIELD_display() 사용)
+    request_type = serializers.CharField(source='get_request_type_display', read_only=True)
+
+    class Meta:
+        model = ApprovalRequest
+        fields = (
+            'id',
+            'requestee_email',
+            'request_type',
+            'requested_at'
+        )
+        # requested_at은 모델의 DateTimeField를 그대로 사용

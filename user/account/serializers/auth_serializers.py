@@ -13,7 +13,7 @@ from django.db import transaction
 
 from ..models import UserInfo
 from approval.models import ApprovalRequest, ApprovalStatus
-from approval.serializers import ApprovalRequestSerializer
+from approval.serializers import ApprovalRequestSerializer, LightApprovalRequestSerializer
 
 # ----------------------------------------------------------------------
 # 1. 사용자 등록 Serializer
@@ -87,7 +87,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     @classmethod
     def get_token(cls, user):
         token = super().get_token(user)
-        token['user_id'] = user.id
+        #token['user_id'] = user.id
         token['nick_name'] = user.nick_name
         #token['oas_auth'] = False
 
@@ -174,7 +174,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
 
         user = self.user
-        data['user_id'] = user.id
+        #data['user_id'] = user.id
         data['nick_name'] = user.nick_name
         #data['oas_auth'] = False
 
@@ -200,7 +200,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         # 여기서는 ApprovalRequestSerializer를 사용한다고 가정합니다.
 
         # list를 넣기 때문에 many=True로 설정
-        serializer = ApprovalRequestSerializer(pending_requests, many=True)
+        serializer = LightApprovalRequestSerializer(pending_requests, many=True)
 
         # 4. 토큰 페이로드에 추가
         # 'family_auth_approval' 대신 의미가 더 명확한 키를 사용하는 것이 좋습니다.

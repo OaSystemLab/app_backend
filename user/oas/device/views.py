@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from rest_framework import status
 
 from .models import OasGroup, OasInfo
-from .serializers import OasGroupSerializer, OasInfoSerializer, AuthRequestSerializer
+from .serializers import  OasInfoSerializer, AuthRequestSerializer, OasInfoRoomUpdateSerializer
 from rest_framework.permissions import IsAuthenticated
 
 from .utils.crypto import decrypt_qr_data_cryptography
@@ -18,41 +18,118 @@ from datetime import datetime, timedelta
 from django.utils import timezone
 
 # ----------------------------------------------------------------------
-# 1. OasGroup ViewSet (환경 제어기 그룹 관리)
+# 1. OasInfoRoomUpdateAPIView(환경 제어기 방이름 변경)
 # ----------------------------------------------------------------------
-class OasGroupViewSet(viewsets.ModelViewSet):
+class OasInfoRoomUpdateAPIView(APIView):
     """
-    OasGroup 모델에 대한 CRUD 작업을 제공하는 ViewSet입니다.
-    기본적으로 모든 등록된 환경 제어기 그룹을 조회하고 관리할 수 있습니다.
+    OasInfo 객체의 room 필드를 수정하는 API.
+    로그인된 사용자 중 family_level='master'인 경우에만 수정이 가능합니다.
     """
-    # 이 ViewSet이 처리할 모델의 쿼리셋을 정의합니다.
-    queryset = OasGroup.objects.all()
-
-    # 이 ViewSet이 사용할 Serializer 클래스를 지정합니다.
-    serializer_class = OasGroupSerializer
-
-    # API 접근 권한 설정 (로그인된 사용자만 접근 가능하도록 가정)
-    # 필요에 따라 다른 권한 설정으로 변경할 수 있습니다.
+    # 📌 권한 설정: 로그인된 사용자만 접근 허용
     permission_classes = [IsAuthenticated]
 
+    # {
+    #     "oas_info_id": 15,
+    #     "new_room_name": "거실"
+    # }
+
+    def post(self, request, *args, **kwargs):
+        # 1. Family Level 마스터 권한 확인
+        user = request.user
+
+        # ⚠️ 요청하신 대로 뷰 내부에서 master 레벨을 확인합니다.
+        if user.family_level != 'master':
+            return Response(
+                {"detail": "이 작업을 수행할 권한이 없습니다. 가족 레벨이 'master'여야 합니다."},
+                status=status.HTTP_403_FORBIDDEN # 권한 없음
+            )
+
+        # 2. 시리얼라이저를 사용하여 요청 데이터 검증
+        serializer = OasInfoRoomUpdateSerializer(data=request.data)
+
+        # 데이터 유효성 검사 실패 시 400 Bad Request 응답
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        # 3. 검증된 데이터 추출
+        oas_info_id = serializer.validated_data['oas_info_id']
+        new_room_name = serializer.validated_data['new_room_name']
+
+        # 4. OasInfo 객체 조회 및 존재 여부 확인
+        try:
+            oas_info_instance = OasInfo.objects.get(pk=oas_info_id)
+        except OasInfo.DoesNotExist:
+            return Response(
+                {"detail": f"ID {oas_info_id}에 해당하는 OasInfo 객체를 찾을 수 없습니다."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 5. 방 이름 (room) 필드 업데이트
+        oas_info_instance.room = new_room_name
+        oas_info_instance.save()
+
+        # 6. 성공 응답 반환
+        return Response(
+            {
+                "message": "방 이름이 성공적으로 수정되었습니다.",
+                "oas_info_id": oas_info_id,
+                "new_room_name": new_room_name
+            },
+            status=status.HTTP_200_OK
+        )
 
 # ----------------------------------------------------------------------
-# 2. OasInfo ViewSet (환경 제어기 상세 정보 관리)
+# 2. OasInfo List ViewSet (환경 제어기 상세 정보)
 # ----------------------------------------------------------------------
-class OasInfoViewSet(viewsets.ModelViewSet):
+class OasListAPIView(APIView):
     """
-    OasInfo 모델에 대한 CRUD 작업을 제공하는 ViewSet입니다.
-    환경 제어기의 상세 정보를 조회하고 관리할 수 있습니다.
+    현재 인증된 사용자 (UserInfo)가 가진 oas_group과 연결된
+    OasGroup 객체가 참조하는 OasInfo 리스트를 반환합니다.
+    URL: /oas_list/
     """
-    # 이 ViewSet이 처리할 모델의 쿼리셋을 정의합니다.
-    queryset = OasInfo.objects.all()
-
-    # 이 ViewSet이 사용할 Serializer 클래스를 지정합니다.
-    serializer_class = OasInfoSerializer
-
-    # API 접근 권한 설정 (로그인된 사용자만 접근 가능하도록 가정)
+    # 📌 이 뷰는 로그인된 사용자만 접근 가능하도록 Permission 설정을 추가해야 합니다.
     permission_classes = [IsAuthenticated]
 
+    def get(self, request, *args, **kwargs):
+        # 1. 현재 요청을 보낸 사용자 (UserInfo) 객체 가져오기
+        user = request.user
+
+        # 2. 사용자 객체에서 CharField인 oas_group_id 값 가져오기
+        oas_group_id = user.oas_group_id
+
+        # 3. oas_group_id 값이 없는지 확인
+        if not oas_group_id:
+            return Response(
+                {"detail": "사용자에게 할당된 환경 제어기 그룹 ID가 없습니다."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 4. OasGroup 객체 조회 (요청하신 filter() 구조 사용)
+        oas_group_qs = OasGroup.objects.filter(oas_group_id=oas_group_id)
+
+        # 5. 조회된 OasGroup이 없는 경우 처리
+        if not oas_group_qs.exists():
+             return Response(
+                {"detail": f"ID '{oas_group_id}'에 해당하는 OasGroup이 존재하지 않습니다."},
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # 6. OasGroup QuerySet을 사용하여 연결된 OasInfo 객체들 가져오기
+        # OasGroup.objects.filter(...)를 통해 OasInfo의 ID(pk)를 뽑아내고,
+        # 이를 이용해 OasInfo 객체 QuerySet을 만듭니다. (중복 방지를 위해 distinct() 활용)
+
+        # 연결된 OasInfo의 Primary Key (ID) 리스트 추출
+        oas_info_pks = oas_group_qs.values_list('oas_info__pk', flat=True).distinct()
+
+        # OasInfo 모델에서 해당 PK를 가진 모든 객체를 조회
+        oas_info_list = OasInfo.objects.filter(pk__in=oas_info_pks)
+
+        # 7. 시리얼라이즈 및 응답
+        # 여러 객체를 시리얼라이즈하므로 반드시 many=True 옵션을 사용합니다.
+        serializer = OasInfoSerializer(oas_info_list, many=True)
+
+        # 결과는 JSON 배열 형태로 반환됩니다.
+        return Response(serializer.data, status=status.HTTP_200_OK)
 # ----------------------------------------------------------------------
 # 3. Auth API View (환경 제어기 인증 요청 처리)
 # ----------------------------------------------------------------------

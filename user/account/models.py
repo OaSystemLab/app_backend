@@ -229,7 +229,7 @@ class UserInfo(AbstractBaseUser, PermissionsMixin):
         send_mail(subject, message, from_email, [self.email], **kwargs)
 
 
-### ⚠️ 현재 수정 중...
+
 class UserGroup(models.Model):
     """
     가족 그룹 내 사용자 등록 및 관계 정보를 관리하는 모델
