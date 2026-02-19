@@ -135,7 +135,11 @@ class GroupService:
             # 4-2. UserInfo 그룹 정보 초기화
             user.family_level = 'none' # 그룹에 소속되지 않은 상태로 변경
             user.family_group_id = None # 그룹 ID 초기화 (Charfield의 경우 None 또는 빈 문자열)
-            user.save(update_fields=['family_level', 'family_group_id'])
+
+            # 5. 환경제어기 Group ID 초기화
+            user.oas_group_id = None
+
+            user.save(update_fields=['family_level', 'family_group_id', 'oas_group_id'])
 
             return True, "사용자({})님의 가족 그룹 탈퇴가 성공적으로 완료되었습니다.".format(user.nick_name)
 

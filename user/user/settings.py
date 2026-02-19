@@ -68,6 +68,8 @@ INSTALLED_APPS = [
     # APP 통합 이벤트 관리
     'log_events',
     'approval',
+    # TDengine
+    'tdengine',
 ]
 
 MIDDLEWARE = [
@@ -112,6 +114,13 @@ DATABASES = {
         'PORT' : '3306',
         'HOST' : '10.10.20.10'
     }
+}
+
+TDENGINE_CONFIG = {
+    'HOST':  '192.168.55.205',
+    'USER': os.environ.get('TD_USER'),
+    'PASSWORD': os.environ.get('TD_PASS'),
+    'DB': 'dev',
 }
 
 # Password validation

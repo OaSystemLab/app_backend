@@ -13,6 +13,7 @@ class UserInfoListSerializer(serializers.ModelSerializer):
         model = UserInfo
         #fields = '__all__' # 모든 필드를 포함하여 모델 변경 사항에 유연하게 대응
         fields = (
+            'id',
             'email',
             'family_level',
             'nick_name',

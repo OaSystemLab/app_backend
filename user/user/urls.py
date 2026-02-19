@@ -40,4 +40,6 @@ urlpatterns = [
     # Approval 앱의 URL을 /api/v1/approvals/ 경로로 연결
     path('api/v1/approvals/', include('approval.urls')),
 
+    path('td/v1/', include('tdengine.urls')),
+
 ]

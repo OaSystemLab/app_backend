@@ -12,8 +12,13 @@ from datetime import timedelta
 from django.db import transaction
 
 from ..models import UserInfo
+from oas.device.models import OasGroup, OasInfo
+
 from approval.models import ApprovalRequest, ApprovalStatus
 from approval.serializers import ApprovalRequestSerializer, LightApprovalRequestSerializer
+
+# tdengine
+from tdengine.services import td_service
 
 # ----------------------------------------------------------------------
 # 1. 사용자 등록 Serializer
@@ -78,10 +83,6 @@ class UserLoginSerializer(serializers.Serializer):
 # ----------------------------------------------------------------------
 # 3. JWT 토큰 Serializer (Custom) -- login
 # ----------------------------------------------------------------------
-# {
-#     "email" : "hth@oasiss.co.kr",
-#     "password" : "ghkdxoghks!@"
-# }
 UNLOCK_DELAY = timedelta(minutes=15)
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     @classmethod
@@ -122,6 +123,25 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
         token['approval_status'] = has_pending_requests
         token['approval_list'] = serializer.data
+
+        user_oas_groups = OasGroup.objects.filter(
+            oas_group_id=user.oas_group_id
+        ).select_related('oas_info')
+
+        # 이제 루프를 돌며 상세 정보(OasInfo)에 접근할 수 있습니다.
+        dev_list = []  # sitecode들을 담을 빈 리스트(배열)
+        for group in user_oas_groups:
+            #print(f"group: {group.oas_info}")
+            sitecode = group.oas_info.site+group.oas_info.dong+group.oas_info.ho+group.oas_info.oas_id
+            #print(f"sitecode: {sitecode}")
+            dev_list.append({
+                'id' : group.oas_info.oas_id,
+                'sitecode' : sitecode,
+                'room_name' : group.oas_info.room,
+                'data' : td_service.get_latest_data(sitecode)
+            })
+
+        token['dev'] = dev_list
 
         return token
 
@@ -209,6 +229,25 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         data['approval_status'] = has_pending_requests
         data['approval_list'] = serializer.data
 
+        user_oas_groups = OasGroup.objects.filter(
+            oas_group_id=user.oas_group_id
+        ).select_related('oas_info')
 
+        # 이제 루프를 돌며 상세 정보(OasInfo)에 접근할 수 있습니다.
+        dev_list = []  # sitecode들을 담을 빈 리스트(배열)
+        for group in user_oas_groups:
+            #print(f"group: {group.oas_info}")
+            sitecode = group.oas_info.site+group.oas_info.dong+group.oas_info.ho+group.oas_info.oas_id
+            print(f"sitecode: {sitecode}")
+            dev_list.append({
+                'id' : group.oas_info.oas_id,
+                'sitecode' : sitecode,
+                'room_name' : group.oas_info.room,
+                'data' : td_service.get_latest_data(sitecode)
+            })
+
+        #print(f"dev_list : {dev_list}")
+
+        data['dev'] = dev_list
 
         return data

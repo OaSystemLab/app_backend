@@ -92,6 +92,12 @@ class ApprovalRequestAPIView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
 
+        if approver.family_group_id == requestee.family_group_id :
+            return Response(
+                {'detail': '이미 속해 있는 그룹 입니다.'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
         # **추가 검증: 승인자가 실제로 마스터 권한을 가지고 있는지 확인 (필요하다면)**
         if not approver.family_level == 'master':
             return Response(
