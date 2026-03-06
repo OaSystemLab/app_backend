@@ -5,18 +5,22 @@ from rest_framework import viewsets
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.throttling import UserRateThrottle
 
 from .models import OasGroup, OasInfo
-from .serializers import  OasInfoSerializer, AuthRequestSerializer, OasInfoRoomUpdateSerializer
-from rest_framework.permissions import IsAuthenticated
+from .serializers import  OasInfoSerializer, AuthRequestSerializer, OasInfoRoomUpdateSerializer, UserAppRequsetSerializer
 
 from .utils.crypto import decrypt_qr_data_cryptography
-from .utils.remote_manager import Bootup
+from .utils.remote_manager import Bootup , AppMqttManager
 
 # 시간 비교를 위한 import
 from datetime import datetime, timedelta
 from django.utils import timezone
 
+from concurrent.futures import ThreadPoolExecutor
+
+from .tasks import task_mqtt_broker_publish
 # ----------------------------------------------------------------------
 # 1. OasInfoRoomUpdateAPIView(환경 제어기 방이름 변경)
 # ----------------------------------------------------------------------
@@ -251,4 +255,62 @@ class AuthAPIView(APIView):
                 serializer.errors['id'],
                 status=status.HTTP_400_BAD_REQUEST
             )
+
+
+# ----------------------------------------------------------------------
+# 4. User app 에서 환경제어기 제어 명령
+# ----------------------------------------------------------------------
+# 전역으로 하나 생성
+# 스레드 풀(Thread Pool) 사용
+executor = ThreadPoolExecutor(max_workers=3)
+
+class ThreePerMinUserThrottle(UserRateThrottle):
+    # throttle_classes 요청을 분당 3번만 할 수 있다.
+    rate = '10/min'
+
+class UserAppOasRequest(APIView):
+    """
+    클라이언트로부터 site ID를 받아 외부 서버의 MQTT 정보를 반환하는 뷰
+    - sitecode : stie(8) + dong(4) + ho(4) + id(1)
+
+    sitecode = "116500010101021101"
+
+    * site = data[0:8]   # 11650001
+    * dong = data[8:12]  # 0101
+    * ho = data[12:16] # 0211
+    * id = data[16:17] # 0 (마지막 1자리만)
+
+    result = f"{sitecode[:8]}-{sitecode[8:12]}-{sitecode[12:16]}-{sitecode[16:17]}"
+    """
+    permission_classes = [IsAuthenticated]  # 인증 사용자
+    #throttle_classes = [ThreePerMinUserThrottle]    # 분당 10회 제한
+
+    def post(self, request):
+        # [1단계] 1차 필수 필드 존재 여부 검증
+        required_fields = ['sitecode', 'type', 'action', 'option']
+        if not all(field in request.data for field in required_fields):
+            return Response(
+                {"detail": "sitecode, type, action 필드는 필수입니다."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        # [2단계] Serializer를 통한 상세 유효성 검사
+        serializer = UserAppRequsetSerializer(data=request.data)
+        if not serializer.is_valid():
+            print(serializer.errors)
+            return Response({"detail": "처리할 수 없는 타입입니다."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 검증 완료된 데이터 사용
+        valid_data = serializer.validated_data
+
+        #AppMqttManager().broker_publish(valid_data)
+        # [3단계] Celery 태스크로 비동기 처리 요청
+        # .delay()를 사용하여 즉시 반환합니다.
+        task_mqtt_broker_publish.delay(valid_data)
+
+        #executor.submit(AppMqttManager().broker_publish, valid_data)
+        # 사용자에게 즉각 응답
+        return Response({
+            "message": f"Site {valid_data['sitecode']} 제어 명령 접수",
+            "action": valid_data['action']
+        }, status=status.HTTP_202_ACCEPTED)
 

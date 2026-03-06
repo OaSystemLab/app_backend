@@ -4,18 +4,19 @@ import json
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 from .models import OasGroup, OasInfo # 같은 디렉토리의 models.py에서 모델 import
-from account.models import UserInfo, UserEmail
+#from account.models import UserInfo, UserEmail
 
 from log_events.models import ProjectLogEntry # ⭐️ 통합 모델 임포트
 # datetime 모듈 대신 Django의 timezone을 사용하는 것이 더 안전하고 일반적입니다.
-from django.utils import timezone
-from django.db import IntegrityError, DatabaseError
-from typing import Optional # 반환 타입 힌트를 위해 Optional 임포트
+# from django.utils import timezone
+# from django.db import IntegrityError, DatabaseError
+# from typing import Optional # 반환 타입 힌트를 위해 Optional 임포트
 
-from account.utils.usergroup_manager import UserGroupManager
+#from account.utils.usergroup_manager import UserGroupManager
 
-from .utils.oas_manager import OasInfoSearchDeviceIdLock, OasInfoNewObject, OasGroupCreateObject, OasInfoDelete
+#from .utils.oas_manager import OasInfoSearchDeviceIdLock, OasInfoNewObject, OasGroupCreateObject, OasInfoDelete
 from .utils.oas_setup_service import OasSetupService
+from django.core.validators import RegexValidator
 
 # ----------------------------------------------------------------------
 # 1. OasGroup Serializer (환경 제어기 그룹 정보)
@@ -154,4 +155,60 @@ class OasInfoRoomUpdateSerializer(serializers.Serializer):
         # 방 이름에 대한 추가적인 유효성 검사 로직을 여기에 추가할 수 있습니다.
         if not value.strip():
             raise serializers.ValidationError("방 이름은 공백일 수 없습니다.")
+        return value
+
+# ----------------------------------------------------------------------
+# 5.  UserAppOasRequest json 내용 검즘
+# ----------------------------------------------------------------------
+class OptionSerializer(serializers.Serializer):
+    # air, timer 등은 상황에 따라 필수일 수도, 아닐 수도 있으므로 required=False 설정
+    air = serializers.CharField(required=False, allow_blank=True)
+    timer = serializers.CharField(required=False, allow_blank=True)
+
+    # 리스트 형태 검증: 정수(Integer)가 담긴 리스트이며, 길이는 정확히 24개여야 함
+    reservation = serializers.ListField(
+        child=serializers.IntegerField(min_value=0, max_value=3), # 0~3 사이 값 가정
+        min_length=0,
+        max_length=24,
+        required=False,
+        allow_empty=True
+    )
+class SleepModeSerializer(serializers.Serializer):
+    # air, timer 등은 상황에 따라 필수일 수도, 아닐 수도 있으므로 required=False 설정
+    moodlampoff = serializers.ChoiceField(choices=["on", "off"], allow_blank=True)
+    diallampoff = serializers.ChoiceField(choices=["on", "off"], allow_blank=True)
+
+    # 시간 정규식 수정: [0-1]? 를 사용하여 한 자리 숫자 시간도 허용
+    time_regex = RegexValidator(
+        regex=r'^([0-1]?\d|2[0-3]):([0-5]\d)$',
+        message="시간 형식은 HH:MM 또는 H:MM 이어야 합니다 (예: 10:00, 8:00)."
+    )
+
+    bedtime = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        validators=[time_regex]
+    )
+    wakeuptime = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        validators=[time_regex]
+    )
+
+class UserAppRequsetSerializer(serializers.Serializer):
+    sitecode = serializers.CharField(min_length=17, max_length=18)
+
+    type = serializers.ChoiceField(choices=["sensing", "aircontrol", "ledcontrol", "lcdcontrol",
+                                            "ventcontrol", "uservent", "sleepmode"])
+    action = serializers.ChoiceField(choices=["on", "off",
+                                              "all_on", "all_off", "diffu_on", "diffu_off",
+                                              "auto", "breeze", "weak", "strong",
+                                              "air", "timer", "reservation", "none"])
+    option = OptionSerializer(required=False)
+    sleep = SleepModeSerializer(required=False, allow_null=True)
+
+
+    def validate_sitecode(self, value):
+        if not value.isdigit():
+            raise serializers.ValidationError("sitecode는 숫자로만 구성되어야 합니다.")
         return value

@@ -238,7 +238,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         for group in user_oas_groups:
             #print(f"group: {group.oas_info}")
             sitecode = group.oas_info.site+group.oas_info.dong+group.oas_info.ho+group.oas_info.oas_id
-            print(f"sitecode: {sitecode}")
+            #print(f"sitecode: {sitecode}")
             dev_list.append({
                 'id' : group.oas_info.oas_id,
                 'sitecode' : sitecode,

@@ -18,7 +18,9 @@ class TDengineService:
         'progress_value_o2', 'progress_value_pm10', 'progress_value_pm2_5',
         'dev_status_envi_manage', 'dev_status_occu_state', 'dev_status_mode_state',
         'dev_status_oxy_state', 'dev_status_vent_state', 'dev_status_led_state',
-        'dev_status_rout_num'
+        'dev_status_rout_num',
+        'reservation',
+        'dev_status_lcd_state','dev_sleep_enable', 'dev_sleep_moodlamp' ,'dev_sleep_diallamp', 'dev_sleep_bed_time', 'dev_sleep_wake_up_time'
     ]
     # 조회를 허용할 테이블 목록
     ALLOWED_TABLES = {'st_dev_sensing', 'st_senser_hourly'}

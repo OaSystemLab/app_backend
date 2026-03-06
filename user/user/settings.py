@@ -21,11 +21,16 @@ load_dotenv()
 
 # 환경 변수에서 API 키를 읽어옵니다.
 REMOTE_BACKEND_KEY = os.environ.get('REMOTE_BACKEND_KEY')
+REMOTE_BACKEND_URL = os.environ.get('REMOTE_BACKEND_URL')
 
 # 키가 설정되지 않은 경우를 대비해 에러 처리를 할 수도 있습니다.
 if not REMOTE_BACKEND_KEY:
-    # raise Exception("EXTERNAL_API_TOKEN 환경 변수가 설정되지 않았습니다.")
-    pass # 또는 기본값 설정
+    raise Exception("REMOTE_BACKEND_KEY 환경 변수가 설정되지 않았습니다.")
+if not REMOTE_BACKEND_URL:
+    raise Exception("REMOTE_BACKEND_URL 환경 변수가 설정되지 않았습니다.")
+
+
+
 
 pymysql.install_as_MySQLdb() # 추가
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
