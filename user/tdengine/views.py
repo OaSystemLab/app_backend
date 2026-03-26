@@ -8,7 +8,9 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 import logging
 from oas.device.models import OasGroup # 모델 위치에 맞춰 수정하세요
-from tdengine.services import td_service
+from tdengine.services import td_service, db_service
+
+from .serializers import DeviceSearchSerializer, DashboardSerializer
 
 def api_latest_data(request, sitecode):
     #service = TDengineService()
@@ -64,57 +66,89 @@ class DeviceRefreshView(APIView):
 
 class DeviceSearchView(APIView):
     permission_classes = [IsAuthenticated]
+
     def post(self, request):
+        # 1. Serializer를 통한 1차 검증
+        serializer = DeviceSearchSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({
+                'status': 'error',
+                'message': '데이터 검증 실패',
+                'errors': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        v_data = serializer.validated_data
+
         try:
-            # 1. POST 데이터 추출
-            sitecode = request.data.get('sitecode')
-            select_list = request.data.get('select_clause', []) # 리스트 형태
-            start_time = request.data.get('start_time')
-            end_time = request.data.get('end_time')
-            data_type = request.data.get('data_type')
-            # 데이터 유효성 검사 (필수 값 확인)
-            if not all([sitecode, select_list, start_time, end_time, data_type]):
-                return Response({
-                    'status': 'error',
-                    'message': '필수 데이터(sitecode, select_clause, start_time, end_time, data_type)가 누락되었습니다.'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            # 3. TDengine 서비스 호출
-            select_str = ", ".join(select_list)
-
-            #print(request.data)
-
-            if data_type == 'hourly':
+            # 2. 서비스 호출 (검증된 데이터 전달)
+            if v_data['data_type'] == 'hourly':
                 history_data = td_service.get_hourly_data(
-                    sitecode=sitecode,
-                    select_clause=select_str,
-                    start_time=start_time,
-                    end_time=end_time
+                    sitecode=v_data['sitecode'],
+                    select_clause=v_data['select_clause'], # 리스트 그대로 전달
+                    start_time=v_data['start_time'],
+                    end_time=v_data['end_time']
+                )
+            elif v_data['data_type'] == 'row':
+                history_data = td_service.get_history_data(
+                    sitecode=v_data['sitecode'],
+                    select_clause=v_data['select_clause'],
+                    start_time=v_data['start_time'],
+                    end_time=v_data['end_time']
                 )
             else:
-                history_data = td_service.get_history_data(
-                    sitecode=sitecode,
-                    select_clause=select_str,
-                    start_time=start_time,
-                    end_time=end_time
+                history_data = td_service.get_day_night_data(
+                    sitecode=v_data['sitecode'],
+                    select_clause=v_data['select_clause'],
+                    start_time=v_data['start_time'],
+                    end_time=v_data['end_time']
                 )
 
-            # history_data = td_service.get_history_data(
-            #     sitecode=sitecode,
-            #     select_clause=select_str,
-            #     start_time=start_time,
-            #     end_time=end_time
-            # )
-            # 3. 최종 결과 반환
             return Response({
                 'status': 'success',
                 'count': len(history_data),
                 'data': history_data
             }, status=status.HTTP_200_OK)
 
+        except ValueError as ve:
+            # 보안 위반 등 로직 에러 처리
+            return Response({'status': 'error', 'message': str(ve)}, status=403)
         except Exception as e:
-            # 예상치 못한 서버 내부 에러 처리
-            # logger.error(f"Unexpected Error in DeviceRefreshView: {str(e)}")
+            return Response({'status': 'error', 'message': '서버 내부 오류'}, status=500)
+
+
+class DashBoardView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        # 1. Serializer를 통한 1차 검증
+        serializer = DashboardSerializer(data=request.data)
+        if not serializer.is_valid():
             return Response({
                 'status': 'error',
-                # 'message': '서버 내부 오류가 발생했습니다.'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                'message': '데이터 검증 실패',
+                'errors': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        v_data = serializer.validated_data
+
+        try:
+            r_data = []
+
+            match v_data['data_type']:
+                case "a1" | "a2" | "a3":
+                    r_data = db_service.get_dashboard(v_data)
+                case _: # 그 외 나머지 (default)
+                        r_data = None
+
+            return Response({
+                'status': 'success',
+                'count': len(r_data),
+                'data': r_data
+            }, status=status.HTTP_200_OK)
+
+        except ValueError as ve:
+            # 보안 위반 등 로직 에러 처리
+            return Response({'status': 'error', 'message': str(ve)}, status=403)
+        except Exception as e:
+            return Response({'status': 'error', 'message': '서버 내부 오류'}, status=500)
+

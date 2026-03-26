@@ -17,13 +17,13 @@ class TDengineService:
         'progress_value_humidity', 'progress_value_tvoc', 'progress_value_co2',
         'progress_value_o2', 'progress_value_pm10', 'progress_value_pm2_5',
         'dev_status_envi_manage', 'dev_status_occu_state', 'dev_status_mode_state',
-        'dev_status_oxy_state', 'dev_status_vent_state', 'dev_status_led_state',
+        'dev_status_oxy_state', 'dev_status_vent_state', 'dev_status_vent_conf','dev_status_led_state',
         'dev_status_rout_num',
         'reservation',
         'dev_status_lcd_state','dev_sleep_enable', 'dev_sleep_moodlamp' ,'dev_sleep_diallamp', 'dev_sleep_bed_time', 'dev_sleep_wake_up_time'
     ]
     # 조회를 허용할 테이블 목록
-    ALLOWED_TABLES = {'st_dev_sensing', 'st_senser_hourly'}
+    ALLOWED_TABLES = {'st_dev_sensing', 'st_dev_hour_avg', 'st_dev_day_night_avg'}
 
     @staticmethod
     def get_client():
@@ -74,7 +74,7 @@ class TDengineService:
                 f"WHERE sitecode = '{sitecode}' "
                 f"AND ts >= '{start_time}' AND ts <= '{end_time}' "
                 f"ORDER BY ts DESC " # 최신순 정렬
-                f"LIMIT 1000000"
+                f"LIMIT 10000"
             )
 
             cursor.execute(query)
@@ -91,7 +91,7 @@ class TDengineService:
             cursor.close()
             conn.close()
 
-    def _execute_sensor_query(self, table_name, sitecode, select_clause, start_time, end_time):
+    def _execute_sensor_query_b(self, table_name, sitecode, select_clause, start_time, end_time):
         # 1. 테이블 이름 검증
         if table_name not in self.ALLOWED_TABLES:
             raise ValueError(f"Invalid table access: {table_name}")
@@ -121,21 +121,6 @@ class TDengineService:
         conn = self.get_client()
         cursor = conn.cursor()
         try:
-            # 컬럼명/테이블명은 위에서 검증된 safe 변수 사용
-            # 값(sitecode, 시간)은 %s 파라미터 바인딩 사용
-            # query = (
-            #     f"SELECT ts{safe_select_str} FROM {table_name} "
-            #     f"WHERE sitecode = %s "
-            #     f"AND ts >= %s AND ts <= %s "
-            #     f"ORDER BY ts DESC "
-            #     f"LIMIT 1000000"
-            # )
-
-            # params = (sitecode, start_time, end_time)
-            # cursor.execute(query, params)
-
-            # return cursor.fetchall()
-
             query = (
                 f"SELECT ts, {select_clause} FROM {table_name} "
                 f"WHERE sitecode = '{sitecode}' "
@@ -153,6 +138,43 @@ class TDengineService:
             cursor.close()
             conn.close()
 
+    def _execute_sensor_query(self, table_name, sitecode, select_list, start_time, end_time):
+        # 1. 테이블 이름 검증 (화이트리스트)
+        if table_name not in self.ALLOWED_TABLES:
+            raise ValueError(f"Invalid table access: {table_name}")
+
+        # 2. 컬럼 유효성 검사 (SQL Injection 방지 핵심)
+        valid_column_set = set(self.MONITORING_COLUMNS)
+        clean_cols = [col.strip() for col in select_list if col.strip() in valid_column_set]
+
+        if not clean_cols:
+            # 요청된 컬럼이 모두 유효하지 않을 경우 보안상 빈 값을 반환하거나 에러 발생
+            raise ValueError("Security Warning: 유효하지 않은 컬럼 요청입니다.")
+
+        # 검증된 컬럼들로만 구성된 안전한 문자열 생성
+        safe_select_str = ", ".join(clean_cols)
+
+        conn = self.get_client()
+        cursor = conn.cursor()
+        try:
+            # serivalzer 에서
+            query = (
+                f"SELECT ts, {safe_select_str} FROM {table_name} "
+                f"WHERE sitecode = '{sitecode}' "
+                f"AND ts >= '{start_time}' AND ts <= '{end_time}' "
+                f"ORDER BY ts DESC " # 최신순 정렬
+                f"LIMIT 1000000"
+            )
+
+            cursor.execute(query)
+
+            return cursor.fetchall()
+
+        finally:
+            cursor.close()
+            conn.close()
+
+
     # 공개 메서드들
     def get_history_data(self, sitecode, select_clause, start_time, end_time):
         return self._execute_sensor_query(
@@ -161,7 +183,145 @@ class TDengineService:
 
     def get_hourly_data(self, sitecode, select_clause, start_time, end_time):
         return self._execute_sensor_query(
-            "st_senser_hourly", sitecode, select_clause, start_time, end_time
+            "st_dev_hour_avg", sitecode, select_clause, start_time, end_time
+            #"st_senser_hourly", sitecode, select_clause, start_time, end_time
         )
+    def get_day_night_data(self, sitecode, select_clause, start_time, end_time):
+        return self._execute_sensor_query(
+            "st_dev_day_night_avg", sitecode, select_clause, start_time, end_time
+        )
+
 # 전역 인스턴스 생성 (다른 앱에서 import 하여 사용)
 td_service = TDengineService()
+
+
+class DashboardService:
+    @staticmethod
+    def __client():
+        cfg = settings.TDENGINE_CONFIG
+        return taos.connect(
+            host=cfg['HOST'], user=cfg['USER'],
+            password=cfg['PASSWORD'], database=cfg['DB']
+        )
+    def _execute_query(self, v_data, tname):
+
+        conn = self.__client()
+        cursor = conn.cursor()
+        try:
+            # serivalzer 에서
+            # select * from dev.userapp_dashboard_analysis where sitecode = '11650001010102111' order by ts desc limit 1
+            query = (
+                f"SELECT * FROM {tname} "
+                f"WHERE home_sitecode = '{v_data['sitecode'][:-1]}' "
+                f"ORDER BY ts DESC " # 최신순 정렬
+                f"LIMIT 1"
+            )
+
+            cursor.execute(query)
+
+            # TDengine에서 컬럼명 가져오기 (결과를 딕셔너리로 만들기 위함)
+            columns = [col[0] for col in cursor.description]
+            row = cursor.fetchone() # LIMIT 1이므로 fetchone이 효율적입니다.
+
+            if row:
+                # [(값1, 값2)] 형태를 {'컬럼1': 값1, '컬럼2': 값2} 형태로 변환
+                return dict(zip(columns, row))
+            return {} # 데이터가 없을 경우 빈 객체 반환
+
+            #return cursor.fetchall()
+
+        finally:
+            cursor.close()
+            conn.close()
+
+    def _execute_query2(self, v_data, tname):
+
+        conn = self.__client()
+        cursor = conn.cursor()
+        res = {"dev": {}, "site": {}}
+        try:
+            # --- [1] 첫 번째 쿼리: 최신 대시보드 데이터 (1행) ---
+            query1 = (
+                f"SELECT * FROM userapp_analysis_dev "
+                f"WHERE sitecode = '{v_data['sitecode']}' "
+                f"AND ts > NOW - 7d "  # 7일 이내 데이터가 없으면 즉시 종료되어 DB 부하 방지
+                f"ORDER BY ts DESC LIMIT 1"
+            )
+            cursor.execute(query1)
+            cols1 = [col[0] for col in cursor.description]
+            row1 = cursor.fetchone()
+
+            # 데이터가 없으면 즉시 빈 객체 반환
+            if not row1:
+                return res
+
+            res['dev'] = dict(zip(cols1, row1))
+
+            # --- [2] 두 번째 쿼리: 단지(Site) 데이터 ---
+            # 슬라이싱(Site Key 추출)
+            site_key = v_data['sitecode'][:-9]
+
+            query2 = (
+                f"SELECT * FROM userapp_analysis_site "
+                f"WHERE site = '{site_key}' "
+                f"AND ts > NOW - 7d "  # 7일 이내 데이터가 없으면 즉시 종료되어 DB 부하 방지
+                f"ORDER BY ts DESC LIMIT 1"
+            )
+            cursor.execute(query2)
+            cols2 = [col[0] for col in cursor.description]
+            row2 = cursor.fetchone() # 단지 데이터도 최신 1개만 가져오므로 fetchone
+
+            # 'site' 키에 단지 정보 저장 (데이터가 없을 경우 빈 딕셔너리)
+            if row2:
+                res['site'] = dict(zip(cols2, row2))
+            else:
+                res['site'] = {}
+
+            # 최종적으로 { "dev": {...}, "site": {...} } 형태가 리턴됩니다.
+            return res
+
+        finally:
+            cursor.close()
+            conn.close()
+
+    def _execute_query3(self, v_data, tname):
+
+        conn = self.__client()
+        cursor = conn.cursor()
+        try:
+            # serivalzer 에서
+            # select * from dev.userapp_dashboard_analysis where sitecode = '11650001010102111' order by ts desc limit 1
+            query = (
+                f"SELECT * FROM {tname} "
+                f"WHERE sitecode = '{v_data['sitecode']}' "
+                f"ORDER BY ts DESC " # 최신순 정렬
+                f"LIMIT 1"
+            )
+
+            cursor.execute(query)
+
+            # TDengine에서 컬럼명 가져오기 (결과를 딕셔너리로 만들기 위함)
+            columns = [col[0] for col in cursor.description]
+            row = cursor.fetchone() # LIMIT 1이므로 fetchone이 효율적입니다.
+
+            if row:
+                # [(값1, 값2)] 형태를 {'컬럼1': 값1, '컬럼2': 값2} 형태로 변환
+                return dict(zip(columns, row))
+            return {} # 데이터가 없을 경우 빈 객체 반환
+
+            #return cursor.fetchall()
+
+        finally:
+            cursor.close()
+            conn.close()
+    # 공개 메서드들
+    def get_dashboard(self, v_data):
+        match v_data['data_type']:
+            case "a1":
+                return self._execute_query(v_data, "userapp_dashboard_analysis")
+            case "a2":
+                return self._execute_query2(v_data, "userapp_analysis")
+            case "a3":
+                return self._execute_query3(v_data, "userapp_dashboard")
+
+db_service = DashboardService()
