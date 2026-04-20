@@ -18,7 +18,7 @@ from approval.models import ApprovalRequest, ApprovalStatus
 from approval.serializers import ApprovalRequestSerializer, LightApprovalRequestSerializer
 
 # tdengine
-from tdengine.services import td_service
+from tdengine.services import td_service, db_service
 
 # ----------------------------------------------------------------------
 # 1. 사용자 등록 Serializer
@@ -85,63 +85,77 @@ class UserLoginSerializer(serializers.Serializer):
 # ----------------------------------------------------------------------
 UNLOCK_DELAY = timedelta(minutes=15)
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    # @classmethod
+    # def get_token(cls, user):
+    #     token = super().get_token(user)
+    #     #token['user_id'] = user.id
+    #     token['nick_name'] = user.nick_name
+    #     #token['oas_auth'] = False
+
+    #     if hasattr(user, 'email_info'):
+    #          token['email_auth'] = user.email_info.email_auth
+    #     else:
+    #          token['email_auth'] = False
+
+    #     token['family_group_id'] = user.family_group_id
+    #     token['family_level'] = user.family_level
+
+    #     # approval(승인 요청)
+    #     # 1. PENDING 요청 목록 조회
+    #     pending_requests = ApprovalRequest.objects.filter(
+    #         approver=user,
+    #         status=ApprovalStatus.PENDING
+    #     ).order_by('requested_at')
+
+    #     # 2. 요청 존재 여부 확인
+    #     has_pending_requests = pending_requests.exists()
+
+    #     # 3. 요청 목록 직렬화
+    #     # 토큰 페이로드 크기를 줄이기 위해, 필요하다면 경량 Serializer를 정의하여 사용하세요.
+    #     # 여기서는 ApprovalRequestSerializer를 사용한다고 가정합니다.
+
+    #     # list를 넣기 때문에 many=True로 설정
+    #     serializer = ApprovalRequestSerializer(pending_requests, many=True)
+
+    #     # 4. 토큰 페이로드에 추가
+    #     # 'family_auth_approval' 대신 의미가 더 명확한 키를 사용하는 것이 좋습니다.
+    #     # 예: 'pending_approvals' 또는 'approvals_as_master'
+
+    #     token['approval_status'] = has_pending_requests
+    #     token['approval_list'] = serializer.data
+
+    #     user_oas_groups = OasGroup.objects.filter(
+    #         oas_group_id=user.oas_group_id
+    #     ).select_related('oas_info')
+
+    #     # 이제 루프를 돌며 상세 정보(OasInfo)에 접근할 수 있습니다.
+    #     dev_list = []  # sitecode들을 담을 빈 리스트(배열)
+    #     for group in user_oas_groups:
+    #         #print(f"group: {group.oas_info}")
+    #         sitecode = group.oas_info.site+group.oas_info.dong+group.oas_info.ho+group.oas_info.oas_id
+    #         #print(f"sitecode: {sitecode}")
+    #         dev_list.append({
+    #             'id' : group.oas_info.oas_id,
+    #             'sitecode' : sitecode,
+    #             'room_name' : group.oas_info.room,
+    #             'data' : td_service.get_latest_data(sitecode)
+    #         })
+
+    #     token['dev'] = dev_list
+
+    #     return token
     @classmethod
     def get_token(cls, user):
         token = super().get_token(user)
-        #token['user_id'] = user.id
-        token['nick_name'] = user.nick_name
-        #token['oas_auth'] = False
 
+        token['nick_name'] = user.nick_name
         if hasattr(user, 'email_info'):
              token['email_auth'] = user.email_info.email_auth
         else:
              token['email_auth'] = False
-
         token['family_group_id'] = user.family_group_id
         token['family_level'] = user.family_level
 
-        # approval(승인 요청)
-        # 1. PENDING 요청 목록 조회
-        pending_requests = ApprovalRequest.objects.filter(
-            approver=user,
-            status=ApprovalStatus.PENDING
-        ).order_by('requested_at')
-
-        # 2. 요청 존재 여부 확인
-        has_pending_requests = pending_requests.exists()
-
-        # 3. 요청 목록 직렬화
-        # 토큰 페이로드 크기를 줄이기 위해, 필요하다면 경량 Serializer를 정의하여 사용하세요.
-        # 여기서는 ApprovalRequestSerializer를 사용한다고 가정합니다.
-
-        # list를 넣기 때문에 many=True로 설정
-        serializer = ApprovalRequestSerializer(pending_requests, many=True)
-
-        # 4. 토큰 페이로드에 추가
-        # 'family_auth_approval' 대신 의미가 더 명확한 키를 사용하는 것이 좋습니다.
-        # 예: 'pending_approvals' 또는 'approvals_as_master'
-
-        token['approval_status'] = has_pending_requests
-        token['approval_list'] = serializer.data
-
-        user_oas_groups = OasGroup.objects.filter(
-            oas_group_id=user.oas_group_id
-        ).select_related('oas_info')
-
-        # 이제 루프를 돌며 상세 정보(OasInfo)에 접근할 수 있습니다.
-        dev_list = []  # sitecode들을 담을 빈 리스트(배열)
-        for group in user_oas_groups:
-            #print(f"group: {group.oas_info}")
-            sitecode = group.oas_info.site+group.oas_info.dong+group.oas_info.ho+group.oas_info.oas_id
-            #print(f"sitecode: {sitecode}")
-            dev_list.append({
-                'id' : group.oas_info.oas_id,
-                'sitecode' : sitecode,
-                'room_name' : group.oas_info.room,
-                'data' : td_service.get_latest_data(sitecode)
-            })
-
-        token['dev'] = dev_list
 
         return token
 
@@ -239,15 +253,23 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             #print(f"group: {group.oas_info}")
             sitecode = group.oas_info.site+group.oas_info.dong+group.oas_info.ho+group.oas_info.oas_id
             #print(f"sitecode: {sitecode}")
+            h_status, tsring, last_seen =  db_service.get_heartbeat_status(sitecode)
+
             dev_list.append({
                 'id' : group.oas_info.oas_id,
                 'sitecode' : sitecode,
                 'room_name' : group.oas_info.room,
-                'data' : td_service.get_latest_data(sitecode)
+                'status' : h_status,
+                'tsring' : tsring,
+                'last_seen' : last_seen,
+                'data' : db_service.redis_get_sensing(sitecode)
             })
+            #db_service.tdredis_get_sensing(sitecode)
 
         #print(f"dev_list : {dev_list}")
 
         data['dev'] = dev_list
+
+
 
         return data

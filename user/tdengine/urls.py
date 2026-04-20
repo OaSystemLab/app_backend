@@ -1,6 +1,6 @@
 from django.urls import path
 from .views import api_latest_data
-from .views import DeviceRefreshView, DeviceSearchView, DashBoardView
+from .views import DeviceRefreshView, DeviceSearchView, DashBoardView, ChartView
 
 urlpatterns = [
     # 기존 실시간 새로고침 API (GET)
@@ -11,4 +11,6 @@ urlpatterns = [
 
     # dh/
     path('dashboard/', DashBoardView.as_view(), name='dash_board'),
+
+    path('dev/chart/', ChartView.as_view(), name='sensor-chart'),
 ]

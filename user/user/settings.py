@@ -16,8 +16,18 @@ from pathlib import Path
 from datetime import timedelta # jwt token life time...
 import pymysql  # 추가
 
+pymysql.install_as_MySQLdb() # 추가
+
 # .env 파일을 사용하는 경우 이 줄을 추가합니다.
 load_dotenv()
+
+# Build paths inside the project like this: BASE_DIR / 'subdir'.
+BASE_DIR = Path(__file__).resolve().parent.parent
+# LOG DIR
+LOG_DIR = os.getenv('LOG_PATH', os.path.join(BASE_DIR, 'logs'))
+
+if not os.path.exists(LOG_DIR):
+    os.makedirs(LOG_DIR)
 
 # 환경 변수에서 API 키를 읽어옵니다.
 REMOTE_BACKEND_KEY = os.environ.get('REMOTE_BACKEND_KEY')
@@ -28,13 +38,6 @@ if not REMOTE_BACKEND_KEY:
     raise Exception("REMOTE_BACKEND_KEY 환경 변수가 설정되지 않았습니다.")
 if not REMOTE_BACKEND_URL:
     raise Exception("REMOTE_BACKEND_URL 환경 변수가 설정되지 않았습니다.")
-
-
-
-
-pymysql.install_as_MySQLdb() # 추가
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
-BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 # Quick-start development settings - unsuitable for production
@@ -84,7 +87,8 @@ MIDDLEWARE = [
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware'
+    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'user.common.log_filters.RequestMiddleware'
 ]
 
 ROOT_URLCONF = 'user.urls'
@@ -126,6 +130,12 @@ TDENGINE_CONFIG = {
     'USER': os.environ.get('TD_USER'),
     'PASSWORD': os.environ.get('TD_PASS'),
     'DB': 'dev',
+}
+# TDENGIND server 에 있는 Redis 정보 이다.
+TD_REDIS_CONFIG = {
+    'HOST':  os.environ.get('TD_REDIS_HOST'),
+    'PORT':  os.environ.get('TD_REDIS_PORT'),
+    'PASSWORD': os.environ.get('TD_REDIS_PASSWORD'),
 }
 
 # Password validation
@@ -226,3 +236,64 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'Asia/Seoul' # 프로젝트의 시간대와 일치시킵니다.
+
+# ==========================================================
+# LOGGING SETTING
+# ==========================================================
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False, # 기본 로그들을 유지
+    'filters': {
+        'add_client_ip': {
+            '()': 'user.common.log_filters.IPFilter', # 필터 클래스 경로
+        },
+    },
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} [{client_ip}] {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'level': 'DEBUG',
+            'filters': ['add_client_ip'],
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+        'file': {
+            'level': 'INFO',
+            'class': 'logging.handlers.RotatingFileHandler', # 파일 회전 설정
+            'filename': os.path.join(LOG_DIR, 'django.log'),
+            'maxBytes': 1024 * 1024 * 10,  # 10 MB
+            'backupCount': 10,             # 파일 10개까지 보관
+            'formatter': 'verbose',
+        },
+        'error_file': {
+            'level': 'ERROR', # ERROR 레벨 이상(ERROR, CRITICAL)만 기록
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(LOG_DIR, 'error.log'), # 파일명을 다르게 설정
+            'maxBytes': 1024 * 1024 * 10,
+            'backupCount': 10,
+            'formatter': 'verbose',
+        },
+    },
+    'loggers': {
+        # 1. 모든 로그를 일단 다 받아내는 루트 설정 (추천)
+        '': {
+            'handlers': ['console', 'file', 'error_file'],
+            'level': 'INFO',
+        },
+        'django': {
+            'handlers': ['console', 'file', 'error_file'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+        # 내가 만든 앱(예: userapp) 전용 로그
+        'userapp': {
+            'handlers': ['console', 'file', 'error_file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+    },
+}

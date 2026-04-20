@@ -65,3 +65,8 @@ class DashboardSerializer(serializers.Serializer):
         allow_blank=True
     )
 
+class ChartRequestSerializer(serializers.Serializer):
+    DATA_TYPE_CHOICES = ['co2', 'dust10', 'dust25', 'humi', 'oxy', 'temp', 'tvoc']
+
+    sitecode = serializers.CharField(min_length=10, max_length=20)
+    data_type = serializers.ChoiceField(choices=DATA_TYPE_CHOICES, help_text="조회할 센서 타입")
