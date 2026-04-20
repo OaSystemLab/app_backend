@@ -2,7 +2,7 @@ import taos
 import redis
 import json
 import time
-
+from asgiref.sync import sync_to_async
 import redis.asyncio as async_redis
 from redis.exceptions import ConnectionError, TimeoutError, AuthenticationError
 import taosrest
@@ -219,6 +219,76 @@ class TDengineService:
             "st_dev_day_night_avg", sitecode, select_clause, start_time, end_time
         )
     # ---------------------------------------------------------------------------------- #
+
+
+
+
+    def _execute_sensor_query(self, table_name, sitecode, select_list, start_time, end_time):
+        # 1. 테이블 이름 검증
+        if table_name not in self.ALLOWED_TABLES:
+            raise ValueError(f"Invalid table access: {table_name}")
+
+        # 2. 컬럼 유효성 검사 (SQL Injection 방지)
+        valid_column_set = set(self.MONITORING_COLUMNS)
+        clean_cols = [col.strip() for col in select_list if col.strip() in valid_column_set]
+
+        if not clean_cols:
+            raise ValueError("Security Warning: 유효하지 않은 컬럼 요청입니다.")
+
+        safe_select_str = ", ".join(clean_cols)
+
+        conn = self.get_client()
+        cursor = conn.cursor()
+        try:
+            query = (
+                f"SELECT ts, {safe_select_str} FROM {table_name} "
+                f"WHERE sitecode = '{sitecode}' "
+                f"AND ts >= '{start_time}' AND ts <= '{end_time}' "
+                f"ORDER BY ts DESC "
+                f"LIMIT 1000000"
+            )
+            cursor.execute(query)
+            return cursor.fetchall()
+
+        except Exception as e:
+            logger.error(f"TDengine Query Error: {e}")
+            raise
+        finally:
+            cursor.close()
+            conn.close()
+
+    # ---------------------------------------------------------
+    # 🚀 [신규 추가] 비동기(Async) 브릿지 메서드들
+    # ---------------------------------------------------------
+
+    async def _execute_sensor_query_async(self, table_name, sitecode, select_list, start_time, end_time):
+        """
+        동기 방식의 TDengine 쿼리를 백그라운드 스레드 풀로 넘겨
+        이벤트 루프 블로킹 없이 실행하도록 감싸는 헬퍼 메서드입니다.
+        """
+        # 💡 핵심: thread_sensitive=False
+        # 메인 스레드에 종속되지 않고 남는 스레드 풀을 활용하게 하여 동시성 성능을 극대화합니다.
+        loop_safe_func = sync_to_async(self._execute_sensor_query, thread_sensitive=False)
+
+        # 이제 await를 사용하여 스레드 작업이 끝날 때까지 비동기적으로 대기합니다.
+        return await loop_safe_func(table_name, sitecode, select_list, start_time, end_time)
+
+    # 비동기 공개(Public) 메서드들
+    async def get_history_data_async(self, sitecode, select_clause, start_time, end_time):
+        return await self._execute_sensor_query_async(
+            "st_dev_sensing", sitecode, select_clause, start_time, end_time
+        )
+
+    async def get_hourly_data_async(self, sitecode, select_clause, start_time, end_time):
+        return await self._execute_sensor_query_async(
+            "st_dev_hour_avg", sitecode, select_clause, start_time, end_time
+        )
+
+    async def get_day_night_data_async(self, sitecode, select_clause, start_time, end_time):
+        return await self._execute_sensor_query_async(
+            "st_dev_day_night_avg", sitecode, select_clause, start_time, end_time
+        )
+
 
 # 전역 인스턴스 생성 (다른 앱에서 import 하여 사용)
 td_service = TDengineService()

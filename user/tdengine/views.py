@@ -188,7 +188,74 @@ class DeviceRefreshView2(APIView):
                 # 'message': '서버 내부 오류가 발생했습니다.'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+
 class DeviceSearchView(APIView):
+    """
+    TDengine에서 특정 장비의 시계열 이력 데이터를 비동기(Async)로 검색하는 API 뷰입니다.
+    DRF의 동기 인증 프레임워크가 이벤트 루프를 블로킹하는 것을 방지하기 위해
+    클래스 레벨 인증을 해제하고 내부에서 비동기 인증을 처리합니다.
+    """
+    authentication_classes = []
+    permission_classes = []
+
+    async def post(self, request):
+        try:
+            # 1. 비동기 환경 인증
+            user = await get_authenticated_user(request)
+            if not user:
+                return Response({
+                    "status": "error",
+                    "message": "인증 실패"
+                }, status=status.HTTP_401_UNAUTHORIZED)
+
+            # 2. Serializer를 통한 1차 검증 (동기 처리 가능)
+            serializer = DeviceSearchSerializer(data=request.data)
+            if not serializer.is_valid():
+                return Response({
+                    'status': 'error',
+                    'message': '데이터 검증 실패',
+                    'errors': serializer.errors
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            v_data = serializer.validated_data
+
+            # 3. 비동기 Service 호출 (메서드명에 _async를 붙이고 await 사용)
+            # td_service가 전역 객체라면 그대로 쓰고, 아니라면 인스턴스를 생성하세요.
+            if v_data['data_type'] == 'hourly':
+                history_data = await td_service.get_hourly_data_async(
+                    sitecode=v_data['sitecode'],
+                    select_clause=v_data['select_clause'],
+                    start_time=v_data['start_time'],
+                    end_time=v_data['end_time']
+                )
+            elif v_data['data_type'] == 'row':
+                history_data = await td_service.get_history_data_async(
+                    sitecode=v_data['sitecode'],
+                    select_clause=v_data['select_clause'],
+                    start_time=v_data['start_time'],
+                    end_time=v_data['end_time']
+                )
+            else:
+                history_data = await td_service.get_day_night_data_async(
+                    sitecode=v_data['sitecode'],
+                    select_clause=v_data['select_clause'],
+                    start_time=v_data['start_time'],
+                    end_time=v_data['end_time']
+                )
+
+            return Response({
+                'status': 'success',
+                'count': len(history_data) if history_data else 0,
+                'data': history_data
+            }, status=status.HTTP_200_OK)
+
+        except ValueError as ve:
+            # 보안 위반 등 로직 에러 처리
+            return Response({'status': 'error', 'message': str(ve)}, status=status.HTTP_403_FORBIDDEN)
+        except Exception as e:
+            return Response({'status': 'error', 'message': '서버 내부 오류', 'error_detail': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class DeviceSearchView2(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
